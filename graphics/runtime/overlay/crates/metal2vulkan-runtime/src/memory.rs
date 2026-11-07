@@ -66,6 +66,18 @@ use std::time::{Duration, Instant};
 /// The size of a pooled block, at most the device's `maxMemoryAllocationSize`.
 pub(super) const BLOCK_BYTES: u64 = 64 << 20;
 
+/// A platform with tighter wired-memory limits may cap its pooled blocks.
+fn block_bytes() -> u64 {
+    static BYTES: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *BYTES.get_or_init(|| {
+        std::env::var("M2V_BLOCK_MB")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|&mb| (1..=256).contains(&mb))
+            .map_or(BLOCK_BYTES, |mb| mb << 20)
+    })
+}
+
 /// The most empty pooled blocks a pool keeps for its next placements ([`Pool::release`]), at
 /// most 128 MiB of empty memory a pool. In a pool the encodings place in, one of them is mostly
 /// the block [`keep_room`] made for room: with one kept, every other block that emptied was freed,
@@ -1157,7 +1169,7 @@ impl Memory {
                 .map(|_| Pool::default())
                 .collect(),
             types,
-            block_bytes: BLOCK_BYTES.min(max_allocation.max(1)),
+            block_bytes: block_bytes().min(max_allocation.max(1)),
             device_address,
             address_types: None,
             kept: None,

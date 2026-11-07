@@ -7,6 +7,7 @@
 #define HOUJI_BACKLIGHT_PROTOCOL_H
 #include <stdint.h>
 enum { HBL_MIN=25, HBL_MAX=2866, HBL_SCALE=65536 };
+enum { HBL_IOS26_MAX_NITS=400 };
 // DSI_INT_CTRL interleaves W1C status bits with interrupt enable bits.
 // Match MiCode's shennong-u-oss controller mask; writing back a sampled
 // stream/refresh status bit would acknowledge another display owner's event.

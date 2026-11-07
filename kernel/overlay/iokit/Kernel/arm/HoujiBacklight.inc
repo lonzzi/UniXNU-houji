@@ -25,7 +25,7 @@ extern "C" unsigned houji_backlight_snapshot(char *out,unsigned capacity) {
     int n=snprintf(out,capacity,
         "HOUJI BACKLIGHT SNAPSHOT: stage=%u failure=%u registered=%u requests=%u rejected=%u grants=%u conforms=%u requested=%u last-level=%u boot-measured=%u\n"
         "HOUJI BACKLIGHT DSI: ctrl=%x status=%x irq=%x fifo=%x read-count=%x packet=%x ack-error=%x; cached observations\n"
-        "HOUJI BACKLIGHT INPUT: fields=%u brightness-kind=%u raw=%x:%x fade-kind=%u raw=%x:%x; kind 1=number 2=value-dictionary 3=other\n",
+        "HOUJI BACKLIGHT INPUT: fields=%u brightness-kind=%u raw=%x:%x fade-kind=%u raw=%x:%x; kind 1=number 2=value-dictionary 3=other 4=nits\n",
         v[Stage],v[Failure],v[Registered],v[Requests],v[Rejected],v[Grants],v[Conforms],v[Requested],v[Applied],v[Measured],
         v[Control],v[Status],v[Interrupt],v[Fifo],v[ReadCount],v[Packet],v[AckError],
         v[RequestFields],v[BrightnessKind],v[RawBrightnessHi],v[RawBrightnessLo],
@@ -38,7 +38,7 @@ static bool houji_backlight_publish_ios26(IOService *service) {
     // CoreBrightness 23G90 needs both properties before matching the service.
     // These are logical slider units, based on its 5/140/400 fallback range.
     // The existing DSI policy still converts the normalized request to panel levels.
-    static constexpr uint32_t curve[] = {5u * HBL_SCALE, 140u * HBL_SCALE, 400u * HBL_SCALE};
+    static constexpr uint32_t curve[] = {5u * HBL_SCALE, 140u * HBL_SCALE, HBL_IOS26_MAX_NITS * HBL_SCALE};
     static constexpr struct { const char *key; uint32_t value; } calibration[] = {
         {"current-for-max-backlight", HBL_SCALE},
         {"current-for-mid-backlight", HBL_SCALE / 2},
@@ -178,7 +178,19 @@ public:
         auto *d=OSDynamicCast(OSDictionary,object);
         set(RequestFields,d?d->getCount():0);
         unsigned bk=0,fk=0;
-        auto *b=numberValue(d?d->getObject("brightness"):nullptr,&bk);
+        auto *legacy=d?d->getObject("brightness"):nullptr;
+        auto *b=numberValue(legacy,&bk);
+        uint32_t scale=1;
+#if HOUJI_IOS26
+        // CoreBrightness 23G90 sends signed 16.16 nits to this service.
+        // The published calibration defines the maximum for normalization.
+        if(auto *nits=d?d->getObject("brightness-nits"):nullptr) {
+            if(legacy)return false;
+            b=OSDynamicCast(OSNumber,nits);
+            bk=b?4:3;
+            scale=HBL_IOS26_MAX_NITS;
+        }
+#endif
         auto *f=numberValue(d?d->getObject("FadePeriod"):nullptr,&fk);
         uint64_t raw=b?b->unsigned64BitValue():0,fade=f?f->unsigned64BitValue():0;
         set(BrightnessKind,bk);set(FadeKind,fk);
@@ -188,9 +200,9 @@ public:
         // display metadata alongside brightness. Only these two numeric keys
         // affect this service; never forward the dictionary to setProperties
         // on a superclass or copy arbitrary keys into the registry.
-        if(!d || d->getCount()>16 || !b || raw>HBL_SCALE || (fk && !f))return false;
+        if(!d || d->getCount()>16 || !b || raw>(uint64_t)HBL_SCALE*scale || (fk && !f))return false;
         if(fade>10u*65536u)return false;
-        *level=b->unsigned32BitValue();*duration=fade*1000000/65536;return true;
+        *level=(unsigned)((raw+scale/2)/scale);*duration=fade*1000000/65536;return true;
     }
     bool start(IOService *provider) APPLE_KEXT_OVERRIDE {
         if(!IOService::start(provider))return false;

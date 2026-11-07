@@ -60,7 +60,7 @@ def main():
     common = ['-target', 'arm64e-apple-ios26.0', '-isysroot', sdk, '-O2',
               '-fstack-protector-strong', '-DHOUJI_TURNIP_RENDER_AUTOTUNE=0',
               '-DHOUJI_GPU_STAGE_TRACE=0', '-DHOUJI_METAL_QUIET=1',
-              '-DHOUJI_GPU_CPU_PROFILE=0', '-DHOUJI_METAL_SINGLE_SAMPLE=1',
+              '-DHOUJI_GPU_CPU_PROFILE=0', '-DHOUJI_METAL_SINGLE_SAMPLE=1', '-DHOUJI_IOS26_METAL=1',
               '-DHOUJI_METAL_PIXEL_PROBE=0', '-I', str(ROOT / 'graphics/include'),
               '-I', str(mesa / 'include')]
     bundle = out / 'NativeAdrenoMetal.bundle'

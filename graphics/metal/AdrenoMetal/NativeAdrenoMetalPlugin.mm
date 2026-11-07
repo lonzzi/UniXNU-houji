@@ -192,8 +192,21 @@ static bool listedClient() {
     return false;
 }
 
+#if HOUJI_IOS26_METAL
+static void setPoolBlockLimit() {
+    const char *process = getprogname();
+    const bool compositor = process && (!strcmp(process, "backboardd") || !strcmp(process, "SpringBoard"));
+    // Full-screen 32-bit targets are about 12.3 MiB. The runtime dedicates
+    // requests larger than half a block, so keep those targets pooled.
+    setenv("M2V_BLOCK_MB", compositor ? "32" : "8", 0);
+}
+#endif
+
 static id clientDevice(unsigned port) {
     if (!listedClient()) return nil;
+#if HOUJI_IOS26_METAL
+    setPoolBlockLimit();
+#endif
     char turnip[1024];
     if (!turnip::libraryPath(turnip, sizeof turnip) || access(turnip, R_OK) != 0) {clientFailure(port, "no-turnip", ""); return nil;}
     uint64_t registryID = 0;
@@ -258,6 +271,9 @@ static id deviceForPort(unsigned port) {
     @synchronized([NativeAdrenoMetalDeviceBase class]) {
         if (tried) return device;
         tried = true;
+#if HOUJI_IOS26_METAL
+        setPoolBlockLimit();
+#endif
         if(!HOUJI_METAL_QUIET)exceptiondiag::start(); // diagnostic only
         // No concurrent binning in any Metal process: with it BV ran ahead of BR and the two stopped waiting on each other inside a pass
         // (int-261p, int-262, and in system memory int-265). Without it Turnip's autotune picks tile memory (GMEM) or system memory per

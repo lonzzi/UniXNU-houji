@@ -268,9 +268,19 @@ def main():
         labels = [label for label in policy['run_at_boot'] if (available / (label + '.plist')).is_file()]
         if not set(policy['required']).issubset(labels):
             raise ValueError('Missing required launchd jobs')
-        env = dict(os.environ, OSLOG='', OSLOG_LEVEL='', ALLOW='', RWA_PACKED16='')
+        # Restore the wallpaper asset service omitted by the reference's
+        # compatibility filter. It stays Mach-service demand only.
+        wallpaper_job = policy['wallpaper_on_demand']
+        env = dict(os.environ, IOS='', OSLOG='', OSLOG_LEVEL='', ALLOW='mobileassetd', RWA_PACKED16='')
         subprocess.run([sys.executable, str(a.userland_build / 'source/mkjobs.py'), '--rest',
                         '--root-volume', str(listing), str(view / 'rootfs'), str(jobs), *labels], env=env, check=True)
+        asset_job = plistlib.loads((jobs / (wallpaper_job + '.plist')).read_bytes())
+        if (asset_job.get('Label') != wallpaper_job or not asset_job.get('MachServices') or
+                any(key in asset_job for key in ('RunAtLoad', 'KeepAlive', 'LaunchEvents'))):
+            raise ValueError('Expected the stock demand-only wallpaper asset service')
+        # The current runtime already denies this service. Exclude its job
+        # from the manifest so clients do not repeatedly start a denied task.
+        (jobs / 'com.apple.PerfPowerServices.plist').unlink(missing_ok=True)
         for plist in jobs.glob('*.plist'):
             job = plistlib.loads(plist.read_bytes())
             job['StandardOutPath'] = job['StandardErrorPath'] = '/dev/null'

@@ -97,8 +97,17 @@ extern "C" IOReturn native_adreno_board_quiesce(void){
    __atomic_fetch_add(&gHoujiGatePerf.audits,1ull,__ATOMIC_RELAXED);
   }
   gate.lap(2);
+#if HOUJI_IOS26
+  // The validated live VM transaction may change entry 14. With the
+  // issuer held and the GPU drained, hash it once and keep that baseline.
+  // The immutable firmware table is still checked against its prior CRC.
+  gate.lap(3);
+  if(!houjiFullTables(true))return kIOReturnIOError;
+#else
   const auto&e=gHoujiFullMemory.entry(14);gHoujiFull.table_crc[1]=houji_table_crc32(e.backing.cpu,e.request.owned_bytes);gate.lap(3);
-  if(!houjiFullTables())return kIOReturnIOError;gate.lap(4);gHoujiProvider.audited_generation=generation;
+  if(!houjiFullTables())return kIOReturnIOError;
+#endif
+  gate.lap(4);gHoujiProvider.audited_generation=generation;
  }
  a.phase=11;s.published=s.pending=0;s.iteration=s.seq+1;
  return kIOReturnSuccess;

@@ -511,6 +511,12 @@ static bool nativeAdrenoNonMutatingGpuMethod(uint32_t method) {
     case NativeAdrenoMethodGetStatus:
     case NativeAdrenoMethodSetMetadata:
     case NativeAdrenoMethodGetMetadata:return true;
+#if HOUJI_IOS26
+    // Allocation only prepares an unpublished BO. Its fresh or retired
+    // CPU pages cannot be addressed by outstanding GPU jobs. BoMap still
+    // drains the ring before publishing the SMMU mapping.
+    case NativeAdrenoMethodBoAlloc:return true;
+#endif
     default:return false;
     }
 }
@@ -1198,7 +1204,13 @@ extern "C" int native_adreno_present_begin_frame(uint32_t desired){
   // Register under the notifier's mutex so a completion cannot be lost
   // between checking and sleeping. Release it BEFORE blocking. Clients
   // without a fence observer still get a bounded timeout, never a fake fence.
-  assert_wait_timeout((event_t)&gHoujiPresentProgress,THREAD_UNINT,(uint32_t)(8333-elapsed),NSEC_PER_USEC);
+  uint32_t waitUs=(uint32_t)(8333-elapsed);
+#if HOUJI_IOS26
+  // An idle userland observer cannot signal a completed fence. Recheck
+  // within 1 ms while presenting, keeping the original overall deadline.
+  if(waitUs>1000)waitUs=1000;
+#endif
+  assert_wait_timeout((event_t)&gHoujiPresentProgress,THREAD_UNINT,waitUs,NSEC_PER_USEC);
   __atomic_fetch_add(&gHoujiPresentSync[9],1ull,__ATOMIC_RELAXED);
   nativeAdrenoIssuerUnlock();
   wait_result_t woke=thread_block(THREAD_CONTINUE_NULL);

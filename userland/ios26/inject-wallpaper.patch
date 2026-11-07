@@ -1,0 +1,60 @@
+diff --git a/src/inject26.c b/src/inject26.c
+--- a/src/inject26.c
++++ b/src/inject26.c
+@@ -1146,6 +1146,44 @@
+ 	dispatch_after_f(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_global_queue(0, 0), NULL, pb_report);
+ }
+ 
++/* A fresh /var can finish LaunchServices registration after PosterBoard's
++ * first lookup. Ask the existing data store to reload once on its own path. */
++static int pb_refresh_requested;
++
++static void
++pb_refresh_extensions(void *context)
++{
++	(void)context;
++	id store = pb_store;
++	if (store == nil) {
++		return;
++	}
++	SEL known = sel_registerName("knownExtensions");
++	if (pb_count(((id (*)(id, SEL))objc_msgSend)(store, known)) != 0) {
++		pb_report(NULL);
++		return;
++	}
++	Class provider = objc_getClass("PFPosterExtensionProvider");
++	Class query_class = objc_getClass("_EXQuery");
++	SEL query_selector = sel_registerName("extensionKitQuery");
++	SEL execute = sel_registerName("executeQuery:");
++	if (provider != Nil && query_class != Nil &&
++	    class_getClassMethod(provider, query_selector) != NULL &&
++	    class_getClassMethod(query_class, execute) != NULL) {
++		id query = ((id (*)(Class, SEL))objc_msgSend)(provider, query_selector);
++		if (query != nil) {
++			id matches = ((id (*)(Class, SEL, id))objc_msgSend)(query_class, execute, query);
++			say("redwood: PosterBoard: ExtensionKit matched %lu installed providers\n", pb_count(matches));
++		}
++	}
++	SEL reload = sel_registerName("updateExtensionsAndNotifyWhenComplete:");
++	if (class_getInstanceMethod(object_getClass(store), reload) != NULL) {
++		((void (*)(id, SEL, void (^)(void)))objc_msgSend)(store, reload, ^{});
++	}
++	dispatch_after_f(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC),
++	    dispatch_get_global_queue(0, 0), NULL, pb_report);
++}
++
+ static void
+ pb_report(void *context)
+ {
+@@ -1174,6 +1212,10 @@
+ 		}
+ 	}
+ 	extensions = ((id (*)(id, SEL))objc_msgSend)(pb_store, sel_registerName("knownExtensions"));
++	if (pb_count(extensions) == 0 && !__atomic_exchange_n(&pb_refresh_requested, 1, __ATOMIC_RELAXED)) {
++		dispatch_after_f(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC),
++		    dispatch_get_global_queue(0, 0), NULL, pb_refresh_extensions);
++	}
+-	say("redwood: PosterBoard: %lu poster extensions known: %s\n", pb_count(extensions), pb_desc(extensions, b, sizeof(b)));
++	say("redwood: PosterBoard: provider inventory: %lu\n", pb_count(extensions));
+ 	roles = ((id (*)(Class, SEL))objc_msgSend)(objc_getClass("PBFPosterExtensionDataStore"), sel_registerName("supportedRoles"));
+ 	roles = ((id (*)(id, SEL))objc_msgSend)(roles, sel_registerName("allObjects"));

@@ -4782,11 +4782,31 @@ static void initializeTextureLimits(id device) {
 - (id<MTLRenderPipelineState>)newRenderPipelineStateWithDescriptor:(MTLRenderPipelineDescriptor *)d error:(NSError **)error {
  return [(id<MTLDevice>)self newRenderPipelineStateWithDescriptor:d options:MTLPipelineOptionNone reflection:nil error:error];
 }
+#if HOUJI_IOS26_METAL
+static void nbRecordRenderFailure(const char *reason) {
+ const char *process=getprogname();
+ if(tQuietProblems || !process || strcmp(process,"backboardd"))return;
+ static std::atomic<unsigned> remaining{4};
+ unsigned count=remaining.load(std::memory_order_relaxed);
+ while(count && !remaining.compare_exchange_weak(count,count-1,std::memory_order_relaxed)) {}
+ if(!count)return;
+ char line[256];
+ int length=snprintf(line,sizeof(line),"redwood26: Metal render pipeline refusal: %.200s",reason?: "unknown");
+ if(length<0 || (size_t)length>=sizeof(line)-1)return;
+ for(int i=0;i<length;++i)if((unsigned char)line[i]<32)line[i]=' ';
+ line[length++]='\n';
+ int fd=open("/dev/console",O_WRONLY|O_CLOEXEC|O_NONBLOCK);
+ if(fd>=0){(void)write(fd,line,(size_t)length);close(fd);}
+}
+#endif
 - (id<MTLRenderPipelineState>)newRenderPipelineStateWithDescriptor:(MTLRenderPipelineDescriptor *)d options:(MTLPipelineOption)options
                                                         reflection:(MTLAutoreleasedRenderPipelineReflection *)reflection error:(NSError **)error {
  if(reflection)*reflection=nil;
  auto *p=new NBRenderDescriptor();
  if(!renderDescriptor(d,p,error)) {
+#if HOUJI_IOS26_METAL
+  nbRecordRenderFailure(error?(*error).localizedDescription.UTF8String:"descriptor");
+#endif
   static std::atomic<int> told{0};
   if(told.fetch_add(1)<64)NBLOG(@"native-metal: render pipeline descriptor refused (vertex %@, fragment %@): %@",d.vertexFunction.name,
                                d.fragmentFunction.name,error?(*error).localizedDescription:@"?");
@@ -4795,7 +4815,12 @@ static void initializeTextureLimits(id device) {
   delete p;return nil;
  }
  std::vector<NmbBinaryArchive *> archives;
- if(!pipelineArchives(d.binaryArchives,archives,error)){delete p;return nil;}
+ if(!pipelineArchives(d.binaryArchives,archives,error)){
+#if HOUJI_IOS26_METAL
+  nbRecordRenderFailure(error?(*error).localizedDescription.UTF8String:"binary archive");
+#endif
+  delete p;return nil;
+ }
  const NmbPipelineOptions creation={(uint64_t)options,archives.data(),archives.size()};
  const uint64_t pipelineBegan=nowUs();const NBCost costBegan=NBCost::now();
  uint64_t cacheBefore[10]={};if(!gJournalPath.empty())nmb_device_work_stats(gDevice,cacheBefore);
@@ -4819,6 +4844,9 @@ static void initializeTextureLimits(id device) {
   // state: a missing linked function there is RenderBox's stitched custom_blend, which needs the compiler.
   NSString *why=[NSString stringWithFormat:@"%@ | frag %@ linked %lu stitched %u/%u compiler %s",lastError(),d.fragmentFunction.name,
       (unsigned long)d.fragmentLinkedFunctions.functions.count,gStitchMade.load(),gStitchMade.load()+gStitchFailed.load(),gCompilerLoaded];
+#if HOUJI_IOS26_METAL
+  nbRecordRenderFailure(why.UTF8String);
+#endif
   static std::atomic<int> told{0};
   if(told.fetch_add(1)<64)NBLOG(@"native-metal: render pipeline refused: %@",why);else noteProblem([@"render pipeline: " stringByAppendingString:why]);
   if(error)*error=nbError([@"render pipeline: " stringByAppendingString:why]);

@@ -93,7 +93,8 @@ unit += '\n' + function('static IOReturn nativeAdrenoRunGuarded(AGXDeviceUserCli
 unit += r'''
 int main(){
  NativeAdrenoDispatchClock timing;int output=0;
- for(unsigned method:{2u,3u,4u,5u,11u,12u,13u,14u,17u}){
+ const unsigned mutation=HOUJI_IOS26?NativeAdrenoMethodBoMap:NativeAdrenoMethodBoAlloc;
+ for(unsigned method:{mutation,4u,5u,11u,12u,13u,14u,17u}){
   reset();pending=2;output=0;
   assert(!nativeAdrenoRunGuarded(&client,method,nullptr,0,&output,sizeof output,timing));
   assert(polls==3 && sleeps==2 && dispatches==1 && output==42 && !held && !armed);
@@ -103,8 +104,13 @@ int main(){
   assert(!nativeAdrenoRunGuarded(&client,method,nullptr,0,&output,sizeof output,timing));
   assert(!polls && !sleeps && dispatches==1);
  }
+ if(HOUJI_IOS26){
+  reset();pending=100;gateError=9;
+  assert(!nativeAdrenoRunGuarded(&client,NativeAdrenoMethodBoAlloc,nullptr,0,&output,sizeof output,timing));
+  assert(!polls && !sleeps && dispatches==1 && pending==100 && !held);
+ }
  reset();pending=100000;output=7;
- assert(nativeAdrenoRunGuarded(&client,2,nullptr,0,&output,sizeof output,timing)==kIOReturnTimeout);
+ assert(nativeAdrenoRunGuarded(&client,mutation,nullptr,0,&output,sizeof output,timing)==kIOReturnTimeout);
  assert(clockUs==500000 && !dispatches && output==7 && !held && !armed);
  reset();gateError=9;output=7;
  assert(nativeAdrenoRunGuarded(&client,3,nullptr,0,&output,sizeof output,timing)==9);
@@ -114,14 +120,14 @@ int main(){
  assert(dispatches==1 && polls==1 && !sleeps); // a failed mutation is never retried
  for(bool stop:{false,true}){
   reset();pending=1;closeOnSleep=!stop;stopOnSleep=stop;
-  assert(nativeAdrenoRunGuarded(&client,2,nullptr,0,&output,sizeof output,timing)==kIOReturnNotReady);
+  assert(nativeAdrenoRunGuarded(&client,mutation,nullptr,0,&output,sizeof output,timing)==kIOReturnNotReady);
   assert(sleeps==1 && polls==1 && !dispatches && !held);
  }
  reset();running=false;
- assert(nativeAdrenoRunGuarded(&client,2,nullptr,0,&output,sizeof output,timing)==kIOReturnNotReady);
+ assert(nativeAdrenoRunGuarded(&client,mutation,nullptr,0,&output,sizeof output,timing)==kIOReturnNotReady);
  assert(!polls && !dispatches && !held);
  reset();g.clock.now_us=nullptr;pending=1;
- assert(nativeAdrenoRunGuarded(&client,2,nullptr,0,&output,sizeof output,timing)==kIOReturnTimeout);
+ assert(nativeAdrenoRunGuarded(&client,mutation,nullptr,0,&output,sizeof output,timing)==kIOReturnTimeout);
  assert(polls==1 && !sleeps && !dispatches && !held);
  // A mutation keeps its place across sleep. New work may not replenish the
  // GPU first; an unrelated bookkeeping query can still finish immediately.
@@ -136,7 +142,7 @@ int main(){
   assert(result==42 && dispatches==operations+1 && owner==nativeAdrenoMutationOwner);
   g.clock.now_us=now;
  };
- assert(!nativeAdrenoRunGuarded(&client,2,nullptr,0,&output,sizeof output,timing));
+ assert(!nativeAdrenoRunGuarded(&client,mutation,nullptr,0,&output,sizeof output,timing));
  assert(polls==2 && sleeps==1 && dispatches==2 && !nativeAdrenoMutationOwner && !held);
  // Host imports previously bypassed the gate entirely. Exercise the actual
  // import branch, including a completion observer during the unlocked wait.
@@ -167,6 +173,8 @@ unit = '#include <initializer_list>\n' + unit
 with tempfile.TemporaryDirectory(prefix='houji-dispatch-') as directory:
     cpp, binary = Path(directory) / 'dispatch.cpp', Path(directory) / 'dispatch'
     cpp.write_text(unit)
-    subprocess.run(['clang++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
-                    '-fsanitize=address,undefined', '-I', str(GPU), str(cpp), '-o', str(binary)], check=True)
-    subprocess.run([str(binary)], check=True, timeout=30)
+    for ios26 in (0, 1):
+        subprocess.run(['clang++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                        f'-DHOUJI_IOS26={ios26}', '-fsanitize=address,undefined', '-I', str(GPU),
+                        str(cpp), '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True, timeout=30)

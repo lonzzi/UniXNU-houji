@@ -12,6 +12,7 @@ methods = text[at:text.index('    bool start(', at)]
 at = text.index('static bool houji_backlight_publish_ios26(')
 publisher = text[at:text.index('#endif', at)]
 unit = r'''
+#define HOUJI_IOS26 1
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
@@ -97,6 +98,21 @@ int main() {
  assert(!Parser::values(&d,&level,&duration));
  d.entries.erase("brightness");assert(!Parser::values(&d,&level,&duration));
  assert(!Parser::values(nullptr,&level,&duration));
+ OSNumber nits(200u*65536),nitsMax(400u*65536),nitsOverflow(400u*65536+1),negativeNits(UINT32_MAX);
+ OSDictionary ios26;ios26.entries={{"brightness-nits",&nits}};
+ assert(Parser::values(&ios26,&level,&duration) && level==32768 && duration==0);
+ assert(HoujiBacklightTrace::data[HoujiBacklightTrace::BrightnessKind]==4);
+ ios26.entries["brightness-nits"]=&nitsMax;
+ assert(Parser::values(&ios26,&level,&duration) && level==65536);
+ ios26.entries["brightness-nits"]=&nitsOverflow;
+ assert(!Parser::values(&ios26,&level,&duration));
+ ios26.entries["brightness-nits"]=&negativeNits;
+ assert(!Parser::values(&ios26,&level,&duration));
+ ios26.entries["brightness-nits"]=&wrapped;
+ assert(!Parser::values(&ios26,&level,&duration));
+ ios26.entries["brightness-nits"]=&nits;
+ ios26.entries["brightness"]=&half;
+ assert(!Parser::values(&ios26,&level,&duration));
  puts("PASS: actual brightness parser accepts scalar/value dictionaries with inert metadata; rejects malformed/out-of-range controls; no panel");
 }
 '''

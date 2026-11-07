@@ -112,7 +112,7 @@
     "core_repository": "https://github.com/UniXNU/UniXNU",
     "core_revision": "bd3e9472422e01c68d17237b5b8b869baefbd0f2",
     "translation_runtime": "624bab3918de5b978e1101517abca2b4fa426565",
-    "runtime_id": "3486f0413be9ea3e231869495c8f5be9",
+    "runtime_id": "d5b2479bd83c070ed286a614a3d67410",
     "source": "graphics/metal",
     "bridge": "graphics/bridge",
     "replacement": {
@@ -233,6 +233,10 @@
         {
           "file": "0028-guard-memory-release-test-worker.patch",
           "sha256": "f601a847e7d392ff08f0476e9594bb56bdb9023c5457ca84bf93a4f2a8e9dcb2"
+        },
+        {
+          "file": "0029-select-pool-block-size.patch",
+          "sha256": "be13aebaab0e08d2da47595cb39842413a539d9597eec277b6e7c4f69e345679"
         }
       ],
       "mesa_patch_series": {
@@ -726,12 +730,12 @@
     "graphics_bridge": {
       "builder": "tools/build-ios26-bridge.py",
       "cargo_lock": "graphics/ios26/Cargo.lock",
-      "runtime_source_id": "3486f0413be9ea3e231869495c8f5be9",
-      "runtime_id": "bb0835e46522e8edead5296a7714c3b7",
+      "runtime_source_id": "d5b2479bd83c070ed286a614a3d67410",
+      "runtime_id": "d2d548cbeb4308a8c2c3086859850e2d",
       "std_rebuilt": true,
       "machine_code": {
         "signed_indirect_calls": 4259,
-        "signed_returns": 12791
+        "signed_returns": 12794
       },
       "hardware_verified": false,
       "full_frontend_and_turnip_rebuilt": true

@@ -24,6 +24,7 @@
     "com.apple.backboardd",
     "com.apple.SpringBoard"
   ],
+  "wallpaper_on_demand": "com.apple.mobileassetd",
   "other_services": "Pinned reference filter, Mach service demand only",
   "runtime_collectors": false
 }
