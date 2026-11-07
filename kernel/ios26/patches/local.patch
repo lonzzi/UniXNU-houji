@@ -1607,3 +1607,50 @@ diff --git a/bsd/vfs/vfs_subr.c b/bsd/vfs/vfs_subr.c
  		if (!error) {
  			if (bdevvp_rootvp != rootvp) {
  				/*
+diff --git a/bsd/kern/kern_proc.c b/bsd/kern/kern_proc.c
+--- a/bsd/kern/kern_proc.c
++++ b/bsd/kern/kern_proc.c
+@@ -4324,6 +4324,43 @@
+ 	pidlist_free(pl);
+ }
+ 
++
++#if HOUJI_IOS26
++struct houji26_process_scan {
++	const char *const *names;
++	unsigned count;
++	uint32_t present;
++};
++
++static int
++houji26_observe_process(proc_t process, void *context)
++{
++	struct houji26_process_scan *scan = context;
++	if (proc_exiting(process)) {
++		return PROC_RETURNED;
++	}
++	for (unsigned index = 0; index < scan->count; index++) {
++		if (strncmp(process->p_comm, scan->names[index], sizeof(process->p_comm)) == 0) {
++			scan->present |= 1U << index;
++			break;
++		}
++	}
++	return PROC_RETURNED;
++}
++
++uint32_t houji26_process_presence(const char *const *, unsigned);
++uint32_t
++houji26_process_presence(const char *const *names, unsigned count)
++{
++	if (count > 32) {
++		return 0;
++	}
++	struct houji26_process_scan scan = { .names = names, .count = count };
++	proc_iterate(PROC_ALLPROCLIST | PROC_NOWAITTRANS, houji26_observe_process, &scan, NULL, NULL);
++	return scan.present;
++}
++#endif /* HOUJI_IOS26 */
++
+ void
+ proc_rebootscan(
+ 	proc_iterate_fn_t callout,

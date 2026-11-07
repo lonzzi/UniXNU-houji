@@ -530,7 +530,7 @@
       "reserved_PID1_exit_checkpoint": true
     },
     "not_yet_qualified": [
-      "stock iOS26 launchd main, services and desktop runtime",
+      "stock iOS26 system services and desktop runtime",
       "Metal shaders/presentation and refresh on houji",
       "multicore scheduler",
       "brightness/touch/battery and app runtime on iOS26"
@@ -544,7 +544,7 @@
     },
     "testing_paused_by_user": false,
     "latest_device_result": {
-      "profile": "full-system-v15-HFS-EL0-dyld-exit-reason-captured",
+      "profile": "full-system-v16-HFS-stock-launchd-main",
       "kernel_entry_verified": true,
       "native_UFS_initialized": true,
       "native_HFSX_identity_verified": true,
@@ -554,7 +554,7 @@
       "user_entry_verified": true,
       "GPU_verified": false,
       "GUI_verified": false,
-      "result": "Current-trial identity and header/payload CRC confirm actual HFS mount, successful exec returns for stage0, helper init and stock launchd. Reserved normal-context critical-exit result captured namespace 6/code 1 and full libSystem.B.dylib reason: no such file, no dyld cache. It matches user photo IMG_0929, so this PID1/dyld failure no longer requires a photograph. Canonical Cryptex layout v4 is installed with all 256 chunks verified, but alone did not solve shared-cache discovery. Stock launchd main, desktop and Metal shaders remain unverified.",
+      "result": "The v5 HFSX root exposes the unchanged Cryptex cache through the default system directory. The current-trial startup identity and CRCs confirm the HFS mount, all three successful exec returns, and stock-launchd-main at kernel time 86.819698 seconds with initproc_spawned accepted. The prior missing-libSystem exit no longer occurred. This snapshot ends at that milestone; system services, desktop and Metal shaders still need device evidence.",
       "native_HFSX_mounted": true,
       "init_exec_attempted": true,
       "GPU_2D_startup_self_test": {
@@ -587,17 +587,13 @@
           "/sbin/launchd.ios"
         ],
         "exec_result": 0,
-        "stock_launchd_main_observed": false,
-        "critical_exit_recorded": true,
-        "exit_namespace": 6,
-        "exit_subcode": 1,
-        "exit_status": 6,
-        "exit_library": "/usr/lib/libSystem.B.dylib",
-        "exit_reason": "no such file, no dyld cache",
-        "photo_matches_automatic_reason": true,
-        "detailed_vnode_MachO_records_enabled": false
+        "stock_launchd_main_observed": true,
+        "critical_exit_recorded": false,
+        "detailed_vnode_MachO_records_enabled": false,
+        "initproc_spawned_accepted": true,
+        "stock_launchd_main_kernel_seconds": 86.819698
       },
-      "recovery_seen_within_seconds": 209,
+      "recovery_seen_within_seconds": 348,
       "coherence_probe": {
         "status": 0,
         "phase": 6,
@@ -618,9 +614,8 @@
         "GLINK_and_channel_up": true,
         "battery_UI_verified": false
       },
-      "terminal_orientation_verified": true,
       "stock_launchd_dyld_reached": true,
-      "stock_launchd_main_verified": false
+      "stock_launchd_main_verified": true
     },
     "rust": {
       "channel": "nightly-2026-11-03",
@@ -717,7 +712,7 @@
       "root_image_verified": true,
       "hardware_verified": false,
       "root_image_verification": {
-        "scope": "Historical v3 assembly receipt; replaced on the test device by canonical-layout v4. Local filesystem checks are not desktop qualification.",
+        "scope": "Historical v3 assembly receipt; replaced on the test device by the v5 root with canonical Cryptex layout and the default dyld cache view. Local filesystem checks are not desktop qualification.",
         "bytes": 34359738368,
         "sha256": "79540c8a19dcc9fa0c1961283e6966ad908166d6ebdb5edfe3d1b8228f5319a2",
         "verified_donor_entries": 462899,
@@ -739,6 +734,15 @@
         "installed_or_booted": true,
         "installed_all_256_chunks_verified": true,
         "stock_launchd_dyld_failure_unchanged": true
+      },
+      "default_shared_cache_view": {
+        "sha256": "6e95fd8958b01422cd608b1ca594bd95d34d0d99133d3fffd388b0c80f80f461",
+        "bytes": 34359738368,
+        "filesystem_check": "PASS",
+        "cache_files_verified_unchanged": 86,
+        "root_chunks_changed": 4,
+        "installed_all_256_chunks_verified": true,
+        "stock_launchd_main_verified": true
       }
     },
     "full_system_boot": {
@@ -769,8 +773,9 @@
       "calendar_source": "Fresh 64-bit host boot-epoch in chosen, consumed by GenericARMPE; unused iOS16 houji_epoch argument removed; no RTC qualification",
       "coherence_fallback": "Only optional mode 5 status 11 with phase 3, valid views, eight inconclusive dirty-line attempts and no coherence work submitted. Require original idle owner, remove both probe mappings and clean/invalidate owned scratch before continuing mode 3 with coherence off. Any cleanup or other qualification failure retains terminal stop; hardware qualification pending.",
       "ADSP_carveout_writes": "iOS26 only: bounded volatile aligned 32-bit stores, partial-word neighbor preservation, overflow checks; avoid bulk memcpy/bzero/DC ZVA on Device-typed reserved firmware RAM. Existing image placement/PAS/range rules and GPU NC whitelist unchanged. DTB metadata begin/accepted startup checkpoints distinguish PAS from segment writes; hardware qualification pending.",
-      "filesystem_selection": "houji_native_root=1 accepts only the registered hfs filesystem and refuses an alternate mountroot callback. No fallback to always-successful mockfs. RAM-only native_root=0 preserves prior filesystem selection. Mount callback type/result are printed at startup; actual HFS mount pending hardware.",
-      "cryptex_layout": "OS/App contents belong at private/preboot/Cryptexes/{OS,App}; preserve stock System/Cryptexes relative symlinks. Verify alias containment and canonical arm64e cache header; full donor bytes/subcaches retain original hashes. Corrected local image hardware qualification pending."
+      "filesystem_selection": "houji_native_root=1 accepts only the registered hfs filesystem and refuses an alternate mountroot callback. No fallback to always-successful mockfs. RAM-only native_root=0 preserves prior filesystem selection. Mount callback type/result are printed at startup; actual HFS mount verified in full-system v14 through v16.",
+      "cryptex_layout": "Canonical OS/App contents in private/preboot/Cryptexes with stock System/Cryptexes symlinks. The default system shared-cache directory links to the unchanged Cryptex cache. v16 verified stock launchd main with this root layout.",
+      "pid1_services_snapshot": "Optional houji_pid1_services=1 with the same startup, native-root and Recovery gates. The existing main worker saves one additional record after 30 seconds. It checks five live process names and calls the existing GPU submission counter query once. A successful query gives counters at the snapshot time. The first terminal result keeps its own slot."
     },
     "minimum_device_result": {
       "kernel_entry_verified": true,
@@ -779,6 +784,6 @@
       "GUI_verified": false,
       "result": "2026-11-06 owner screen photo shows Darwin 25.6.0, initialized GIC/VM/IOKit/HFS and HOUJI IOS26 ARM64E PID1 REACHED. RAM-only one-CPU trial; no physical root install or runtime collectors."
     },
-    "hardware_boot_scope": "Native arm64e RAM PID1 verified; single-CPU / 8 GiB full-system trial mounted HFS root and passed dedicated GPU 2D startup self-test; stock launchd, GUI, Metal shaders and multicore remain unqualified"
+    "hardware_boot_scope": "Native arm64e RAM PID1 and stock iOS26 launchd main verified on Xiaomi 14. The single-CPU / 8 GiB full-system trial mounted HFS and passed dedicated GPU 2D startup self-tests. System services, desktop, Metal shaders and multicore need further device evidence."
   }
 }

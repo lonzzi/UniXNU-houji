@@ -1302,4 +1302,11 @@ canonical 路径、原始链接和数字所有权通过检查；磁盘映像设�
 
 供体 dyld 的默认目录为 `/System/Library/Caches/com.apple.dyld/`，该路径在当前
 扁平 HFS 镜像中不存在。后续组装为此目录提供指向既有 Cryptex 缓存的相对链接，
-仍保留 canonical 路径与原始 86 个缓存文件；该兼容入口尚待独立实机验证。
+仍保留 canonical 路径与原始 86 个缓存文件。
+
+完整系统 v16 在单核、8 GiB 配置下验证了默认缓存入口。v5 根卷的四个变化分块写入后，
+全部 256 个分块回读与新镜像一致。自动读回的启动文件通过本轮标识及 header/payload
+CRC 校验，三个 exec 返回 0，内核时间 86.8 秒出现 `stock-launchd-main` 和
+`initproc_spawned accepted`。此轮跨过了 `libSystem.B.dylib` 缺库退出，主机在临时启动后
+348 秒观测到 OrangeFox 重连。最后一条启动里程碑是原版 launchd 主程序，服务、桌面和
+Metal shader 仍需各自的实机证据。

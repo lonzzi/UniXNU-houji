@@ -2,8 +2,8 @@
 
 本分支正在迁移小米 14 的 iOS26 / arm64e 内核与启动链，目标与迁移状态见
 [iOS26 迁移](ios26-bringup.md)及 `targets/ios26.json`。XNU12377 与最小 arm64e PID1
-已经实机运行；单核完整系统测试已挂载 HFS 根卷并通过原生 GPU 2D 启动自检，
-尚未证明 stock launchd、桌面、Metal shader 或高刷新率运行。
+已经实机运行。单核完整系统测试已挂载 HFS 根卷，完成原生 GPU 2D 启动自检并进入
+原版 launchd 主程序。系统服务、桌面、Metal shader 和高刷新率仍待实机验证。
 下文描述保留的 Darwin 22 / iOS16 实现，其功能状态不能直接当作 iOS26 的验证结果。
 它与最新 UniXNU 的板级模块格式并非完全相同；
 不要将其他 SoC 的设备树、内存地址、频点或 MMIO 写入直接用于 houji。

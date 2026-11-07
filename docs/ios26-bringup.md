@@ -4,8 +4,8 @@
 iOS16 调试并要求转向小米 15 参考项目所用的 iOS26。当前已经编译并链接 XNU12377 arm64e / HOUJI 16 KiB 内核和新 DarwinBoot。
 2026-11-06 的 RAM 静态 PID1 镜像已在小米 14 实机运行，屏幕显示 Darwin 25.6.0 和
 `HOUJI IOS26 ARM64E PID1 REACHED`。UEFI、标准 PAC、单核 XNU、RAM root 和最小
-用户进程已有屏幕证据；完整系统、GPU 和旧功能仍在迁移与验证。用户已恢复实机测试
-授权，完整系统卷的首次设备测试正在准备。
+用户进程已有屏幕证据。完整系统已在单核配置下挂载 HFS 根卷并进入原版 launchd
+主程序，桌面、完整图形链路和旧功能仍在验证。
 
 ## 固定输入
 
@@ -249,7 +249,9 @@ Recovery 测试同时启用时生效。它最多保存八条固定路径的 PID1
 `initproc_spawned` 接受及已授权用户空间重启请求；重启消息沿用内核已检查的副本。
 写入复用既有启动文件和范围检查，仅在未进入 panic、允许中断的正常上下文进行。
 stock launchd 的 main 通知在独立的一次性线程保存，避免在 sysctl 锁下做存储操作。
-这不是周期采样或运行期日志搜集器；exec 返回成功也不单独证明用户代码已执行。
+另设 `houji_pid1_services=1` 后，该线程在 main 检查点之后等待约 30 秒，再多保存一条
+服务状态。记录包含五个指定进程在该时刻的存在情况和一次 GPU 提交计数查询结果。
+查询返回 0 时，提交数和完成 fence 有效。首条终止原因仍有独立额度，测试没有周期采集。
 首次完整系统使用的 Data 仍是 ramfs，持久化、旧数据迁移和所有既有功能的 iOS26
 运行期验收尚未完成。
 
@@ -295,7 +297,7 @@ DTB 元数据认证前后各有一次启动检查，运行期采集器仍关闭�
 RAM 单程序探针仍用原选择。只有实机出现 HFS callback 成功、正常文件长度及
 Mach-O 程序头，才能认定实际文件系统链条通过。
 
-最新实机已确认 HFS callback 成功、首个文件的正常长度/arm64e Mach-O 头及
+v14 已确认 HFS callback 成功、首个文件的正常长度/arm64e Mach-O 头及
 EL0 辅助链；原版 launchd 进入 dyld 后因 libSystem 不可用终止，尚未到 main。
 Cryptex 内容需放在 `/private/preboot/Cryptexes/{OS,App}`，并保留供体的
 `/System/Cryptexes` 相对链接；只将内容放进替换后的 System 实体目录会遗漏
@@ -314,7 +316,11 @@ canonical preboot 视图。镜像作者现在检查这两个视图和 arm64e cac
 `/System/Library/Caches/com.apple.dyld` 相对链接到现有 OS Cryptex 的缓存目录。
 这让未能经 ignition 发现缓存的加载器仍可尝试系统默认路径；不改写缓存字节，
 不绕过共享区域或签名验证。镜像作者拒绝覆盖该位置的既有目录/其他链接，并验证
-最终目标仍在 canonical Cryptex 内。该入口能否推进实际 dyld 加载仍待实机结果。
+最终目标仍在 canonical Cryptex 内。
 查找行为参考 [Apple CacheFinder](https://github.com/apple-oss-distributions/dyld/blob/fd8d0c4d52320ebf64db34f3cb280310d905c5ae/dyld/DyldProcessConfig.cpp)；
 供体实际 dyld-1387 同时含上述默认路径及 ignition 诊断字符串，不能将参考源码
 本身当作供体运行轨迹。
+
+v16 使用新增默认缓存入口的 v5 根卷。自动回读通过本轮标识及 CRC 校验，内核时间
+约 86.8 秒记录 `stock-launchd-main`，`initproc_spawned` 已由内核接受。此轮越过了
+之前的缺库退出。启动文件保存至该里程碑，系统服务和桌面进度需要后续证据。

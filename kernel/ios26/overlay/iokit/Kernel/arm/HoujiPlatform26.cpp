@@ -30,6 +30,8 @@ extern uint32_t processor_avail_count;
 
 /* Optional, finite PID1 bring-up results. No periodic or per-frame tracing. */
 extern "C" void houji_ufs_checkpoint(const char *, unsigned);
+extern "C" uint32_t houji26_process_presence(const char *const *, unsigned);
+extern "C" IOReturn native_adreno_provider_desktop_stats(uint64_t[7]);
 static uint32_t bootResults, bootMainSeen, bootTerminalResult;
 static bool bootResultsEnabled(void) {
     int enabled = 0, native = 0, recovery = 0;
@@ -43,16 +45,19 @@ static bool bootDetailsEnabled(void) {
     PE_parse_boot_argn("houji_pid1_detail", &detail, sizeof(detail));
     return detail == 1;
 }
-static void bootResult(const char *kind, const char *object, int result, const char *detail, bool terminal = false) {
-    if (!bootResultsEnabled()) return;
-    if (terminal) {
-        if (__atomic_exchange_n(&bootTerminalResult, 1U, __ATOMIC_ACQ_REL)) return;
-    } else if (__atomic_fetch_add(&bootResults, 1U, __ATOMIC_ACQ_REL) >= 7) return;
+static void saveBootResult(const char *kind, const char *object, int result, const char *detail) {
     char stage[768];
     snprintf(stage, sizeof(stage), "HOUJI26 STARTUP RESULT: %s object=%.128s result=%d main=%u %.512s",
         kind, object ? object : "", result, __atomic_load_n(&bootMainSeen, __ATOMIC_ACQUIRE), detail ? detail : "");
     IOLog("%s\n", stage);
     houji_ufs_checkpoint(stage, 0);
+}
+static void bootResult(const char *kind, const char *object, int result, const char *detail, bool terminal = false) {
+    if (!bootResultsEnabled()) return;
+    if (terminal) {
+        if (__atomic_exchange_n(&bootTerminalResult, 1U, __ATOMIC_ACQ_REL)) return;
+    } else if (__atomic_fetch_add(&bootResults, 1U, __ATOMIC_ACQ_REL) >= 7) return;
+    saveBootResult(kind, object, result, detail);
 }
 extern "C" void houji26_boot_exec(const char *path, int result, int phase) {
     if (!path || __atomic_load_n(&bootMainSeen, __ATOMIC_ACQUIRE)) return;
@@ -77,6 +82,23 @@ extern "C" void houji26_boot_header(const char *path, const void *data, unsigned
 }
 static void bootMainWorker(void *, wait_result_t) {
     bootResult("stock-launchd-main", "/sbin/launchd.ios", 0, "kernel initproc_spawned accepted");
+    int observeServices = 0;
+    PE_parse_boot_argn("houji_pid1_services", &observeServices, sizeof(observeServices));
+    if (observeServices != 1 || !bootResultsEnabled()) return;
+    // This worker is queued once by the main milestone. Use a separate
+    // result so the first critical exit can still be saved independently.
+    IOSleep(30000);
+    if (!bootResultsEnabled()) return;
+    const char *const names[] = {"notifyd", "backboardd", "runningboardd", "lsd", "SpringBoard"};
+    uint32_t present = houji26_process_presence(names, sizeof(names) / sizeof(names[0]));
+    uint64_t stats[7] = {};
+    IOReturn gpu = native_adreno_provider_desktop_stats(stats);
+    char detail[320];
+    snprintf(detail, sizeof(detail),
+        "notifyd=%u backboardd=%u runningboardd=%u lsd=%u SpringBoard=%u gpu-query=%x backboard-submits=%llu submit-errors=%llu completed-fence=%llu",
+        present & 1U, (present >> 1) & 1U, (present >> 2) & 1U, (present >> 3) & 1U, (present >> 4) & 1U,
+        static_cast<unsigned>(gpu), stats[0], stats[2], stats[4]);
+    if (bootResultsEnabled()) saveBootResult("stock-launchd-services", "/sbin/launchd.ios", 0, detail);
 }
 extern "C" void houji26_boot_main(void) {
     if (__atomic_exchange_n(&bootMainSeen, 1U, __ATOMIC_ACQ_REL)) return;

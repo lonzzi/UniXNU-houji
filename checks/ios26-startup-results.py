@@ -17,19 +17,21 @@ unit = r'''
 #include <vector>
 using thread_t = void *;
 using wait_result_t = int;
+using IOReturn = int;
 constexpr thread_t THREAD_NULL = nullptr;
 constexpr int KERN_SUCCESS = 0;
 using entry_t = void (*)(void *, wait_result_t);
-static int enabled, native_root, recovery, detail, panic_state, thread_error;
+static int enabled, native_root, recovery, detail, services, panic_state, thread_error;
 static bool interruptible = true;
-static unsigned thread_calls, log_calls;
+static unsigned thread_calls, log_calls, sleeps, service_reads;
 static entry_t queued;
 static std::vector<std::string> writes;
 static bool PE_parse_boot_argn(const char *name, void *value, int size) {
     assert(size == sizeof(int));
     int result = !strcmp(name,"houji_pid1_startup") ? enabled :
         !strcmp(name,"houji_native_root") ? native_root :
-        !strcmp(name,"houji_pid1_detail") ? detail : recovery;
+        !strcmp(name,"houji_pid1_detail") ? detail :
+        !strcmp(name,"houji_pid1_services") ? services : recovery;
     memcpy(value, &result, sizeof result); return true;
 }
 static unsigned panic_active() { return panic_state; }
@@ -44,11 +46,22 @@ static int kernel_thread_start(entry_t entry, void *, thread_t *thread) {
     queued = entry; *thread = (void *)1; return 0;
 }
 static void thread_deallocate(thread_t thread) { assert(thread == (void *)1); }
+static void IOSleep(unsigned milliseconds) { assert(milliseconds == 30000); ++sleeps; }
+extern "C" uint32_t houji26_process_presence(const char *const *names, unsigned count) {
+    assert(count == 5 && !strcmp(names[1], "backboardd") && !strcmp(names[4], "SpringBoard"));
+    ++service_reads;
+    return 0x16;
+}
+extern "C" IOReturn native_adreno_provider_desktop_stats(uint64_t stats[7]) {
+    stats[0] = 12; stats[4] = 110;
+    return 0;
+}
 '''
 unit += source[start:end]
 unit += r'''
 static void reset() {
     enabled = native_root = recovery = detail = 1; panic_state = thread_error = 0;
+    services = 0; sleeps = service_reads = 0;
     interruptible = true; thread_calls = log_calls = bootResults = bootMainSeen = bootTerminalResult = 0;
     queued = nullptr; writes.clear();
 }
@@ -123,6 +136,17 @@ int main() {
     }
     houji26_boot_main();queued(nullptr,0);assert(writes.size()==7);
     houji26_boot_exit(6,1,6,"Library not loaded",18);assert(writes.size()==8);
+    assert(!sleeps && !service_reads);
+    reset();services=1;
+    for (const char *path : {"/sbin/launchd", "/redwood/sbin/init", "/sbin/launchd.ios"}) {
+        houji26_boot_exec(path,0,1);houji26_boot_exec(path,0,0);
+    }
+    houji26_boot_main();queued(nullptr,0);
+    assert(writes.size()==8 && sleeps==1 && service_reads==1);
+    assert(writes.back().find("notifyd=0 backboardd=1 runningboardd=1 lsd=0 SpringBoard=1")!=std::string::npos);
+    assert(writes.back().find("gpu-query=0 backboard-submits=12 submit-errors=0 completed-fence=110")!=std::string::npos);
+    houji26_boot_exit(6,1,6,"later exit",10);
+    assert(writes.size()==9 && writes.back().find("pid1-critical-exit")!=std::string::npos);
 }
 '''
 with tempfile.TemporaryDirectory(prefix='houji26-startup-results-') as name:
@@ -133,4 +157,4 @@ with tempfile.TemporaryDirectory(prefix='houji26-startup-results-') as name:
                     '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                     str(cpp), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-print('PASS: actual startup writer requires all boot gates and normal context, reserves one terminal reason within eight records, bounds reason reads, filters paths, defers main notification and preserves disabled/failed-worker behavior; host peers, no device or GPU')
+print('PASS: actual startup writer keeps the default eight records, allows one opt-in service snapshot, retains the first terminal reason and defers main notification; host peers, no device or GPU')
