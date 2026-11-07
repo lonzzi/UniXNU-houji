@@ -1533,3 +1533,22 @@ backboardd 成功提交 1,685 次，提交错误为 0，回读没有记录 backb
 本轮原生画布的非等比图层复制计数为 0，现象在写屏前仍待定位。
 用户确认壁纸添加页仍为空，ExtensionKit 仍查询到 0 个提供者，
 锁屏集合返回 `-2203`。
+
+v41 单独恢复 23G90 根卷 `launchd.plist` 中 10 个独立壁纸扩展的
+`AppExtensions` 记录。
+用户仍看到空的壁纸添加页，ExtensionKit 查询仍为 0，锁屏集合仍返回
+`-2203`。设备 243 秒后自动回到 OrangeFox，回读的标识与 CRC 通过。
+
+iOS16 r195v4 的原始日志把同类故障定位到 ExtensionKit 无法连接
+AMFI 读取扩展点缓存。调整 `enforce_xpc_cache_code_signing` 后，实机
+开始显示壁纸选项，当时的预览渲染仍有问题。23G90 的扩展点读取同样有
+这条 AMFI 验证路径。v42 在 v41 的根卷上只改这项功能开关。
+构建机用原版分离签名校验原版 `extensions.plist`。
+
+v42 用户点「添加新壁纸」后仍看到黑屏。248 秒后自动返回 OrangeFox，
+回读通过标识及 CRC 校验。ExtensionKit 查询和 PosterBoard 已知扩展
+数均为 0，锁屏集合仍返回 `-2203`。backboardd 成功提交 612 次，
+提交错误为 0。iOS16 当时还用 LaunchServices 的系统 API 刷新了六个
+包含壁纸扩展的框架。23G90 的内建壁纸扩展位于
+`System/Library/ExtensionKit/Extensions`，仍需确认开机重建后这些
+独立扩展是否进入 LaunchServices 数据库。
