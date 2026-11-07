@@ -51,6 +51,27 @@ static bool bootServicesEnabled(void) {
     PE_parse_boot_argn("houji_pid1_services", &enabled, sizeof(enabled));
     return enabled == 1 && bootResultsEnabled();
 }
+#if DEVELOPMENT || DEBUG
+static uint32_t bootDisplayExitState;
+static char bootDisplayExit[256];
+extern "C" bool houji26_remember_display_exit(int pid, int status, unsigned name_space, uint64_t code,
+    const char *description, unsigned bytes) {
+    if (!bootServicesEnabled()) return false;
+    unsigned expected = 0;
+    if (!__atomic_compare_exchange_n(&bootDisplayExitState, &expected, 1U, false,
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return false;
+    if (bytes > 152) bytes = 152;
+    if (!description) bytes = 0;
+    snprintf(bootDisplayExit, sizeof(bootDisplayExit), "pid=%d status=%x namespace=%u subcode=%llx description=%.*s",
+        pid, static_cast<unsigned>(status), name_space, (unsigned long long)code,
+        bytes ? (int)bytes : 4, bytes ? description : "none");
+    for (char *p = bootDisplayExit; *p; ++p) {
+        if (*p == '\n' || *p == '\r') *p = ' ';
+    }
+    __atomic_store_n(&bootDisplayExitState, 2U, __ATOMIC_RELEASE);
+    return true;
+}
+#endif
 static void saveBootResult(const char *kind, const char *object, int result, const char *detail) {
     char stage[768];
     snprintf(stage, sizeof(stage), "HOUJI26 STARTUP RESULT: %s object=%.128s result=%d main=%u %.512s",
@@ -117,6 +138,11 @@ extern "C" void houji26_boot_gpu_end(unsigned code, uint64_t elapsed_us) {
         elapsed_us, static_cast<unsigned>(gpu), stats[0], stats[2], stats[4]);
     if (bootResultsEnabled()) {
         native_adreno_provider_snapshot();
+#if DEVELOPMENT || DEBUG
+        if (__atomic_load_n(&bootDisplayExitState, __ATOMIC_ACQUIRE) == 2U) {
+            IOLog("HOUJI26 BACKBOARDD FIRST EXIT: %s\n", bootDisplayExit);
+        }
+#endif
         saveBootResult("gpu-runtime-end", "mode=3", static_cast<int>(code), detail);
     }
 }

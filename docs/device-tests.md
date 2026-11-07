@@ -1336,5 +1336,27 @@ v20 在相同显示配置下取一次 backboardd 线程栈。按本轮 shared-ca
 23G90 的符号解析，主线程停在 BoardServices 初始化中的
 `RBSConnection managedEndpointByLaunchIdentifier`，连接线程停在
 `RBSConnection _handshake` 下的 `xpc_connection_send_message_with_reply_sync`。
-这次捕获显示连接尚未建立，也记录到 usermanagerd 两次 signal 6 退出。两者的依赖
-关系仍需从 runningboardd 服务端查证。
+这次捕获显示连接尚未建立，也记录到 usermanagerd 两次 signal 6 退出。
+
+v21 的单次 runningboardd 栈在 `RBPersonaManager init` 中调用
+`personaAttributesForPersonaType:withError:`，同步等待 UserManagement 的 XPC 回复。
+同轮 usermanagerd 首次退出的两个可执行文件返回地址共用同一个 16 KiB 对齐 slide，
+分别落在 23G90 程序的 persona 清单失败分支和主程序调用处。失败分支调用
+`abort_with_reason`，文本是 `Daemon failed to load persona manifest.`。读回的启动记录
+通过本轮标识和 CRC 校验。
+
+v22 使用重新核对数值属主的 Data 模板，调整 220 个条目。启动仍走到 stock launchd，
+usermanagerd 仍从同一个分支退出，runningboardd 仍等待 persona 查询。启动日志确认
+launchd 跳过 `usermanagerd --init`，供体实际读取的 `/private/var/keybags/persona.kb`
+不在旧模板中。本轮 framebuffer 客户端启动尝试、Metal 发现和 backboardd 提交均为
+0，GPU 工作线程正常结束，OrangeFox 在 295 秒重新连接。
+
+v23 使用包含空 persona v1 清单的根卷，修正 dyld 缓存入口的链接权限。
+OrangeFox 在 292 秒重新连接，本轮记录通过标识和 CRC 校验。framebuffer
+记录了 14 次客户端初始化尝试和 14 次成功初始化。Metal 属性读取 13 次，
+最后读取者为 backboardd，插件启动标记 60 条。工作线程结束时 backboardd
+提交 4 次，错误 0，完成 fence 由 98 推进到 102。framebuffer 交换和复制仍为 0。
+
+同一轮后期有多个 backboardd 退出的 corpse 事件。内核时间约 212.8 秒
+取到的主线程栈位于 `-[BLControl waitForALSArrival]`，供体实现对此最多等待
+5 秒，超时后继续启动。首次退出的原因尚需单独保留。

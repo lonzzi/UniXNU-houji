@@ -1604,21 +1604,37 @@ diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
  }
  
  SYSCTL_PROC(_kern, OID_AUTO, initproc_spawned,
-@@ -2002,6 +2009,23 @@
+@@ -1984,6 +1991,23 @@
+ #endif /* (DEVELOPMENT || DEBUG) && CONFIG_COREDUMP */
+ }
+ 
++#if HOUJI_IOS26
++static unsigned
++houji26_exit_desc_bytes(os_reason_t reason, const char *description)
++{
++	if (!description || reason == OS_REASON_NULL) {
++		return 0;
++	}
++	uintptr_t base = (uintptr_t)reason->osr_kcd_buf;
++	uintptr_t desc = (uintptr_t)description;
++	if (desc < base || desc - base >= reason->osr_bufsize) {
++		return 0;
++	}
++	uint64_t remaining = reason->osr_bufsize - (desc - base);
++	return remaining < 512 ? (unsigned)remaining : 512;
++}
++#endif
++
+ static void
+ proc_handle_critical_exit(proc_t p, int rv)
+ {
+@@ -2002,6 +2026,15 @@
  #endif /* DEVELOPMENT */
  
  	char *exit_reason_desc = exit_reason_get_string_desc(p->p_exit_reason);
 +#if HOUJI_IOS26
 +	if (p == initproc) {
-+		unsigned desc_bytes = 0;
-+		if (exit_reason_desc && p->p_exit_reason != OS_REASON_NULL) {
-+			uintptr_t base = (uintptr_t)p->p_exit_reason->osr_kcd_buf;
-+			uintptr_t desc = (uintptr_t)exit_reason_desc;
-+			if (desc >= base && desc - base < p->p_exit_reason->osr_bufsize) {
-+				uint64_t remaining = p->p_exit_reason->osr_bufsize - (desc - base);
-+				desc_bytes = remaining < 512 ? (unsigned)remaining : 512;
-+			}
-+		}
++		unsigned desc_bytes = houji26_exit_desc_bytes(p->p_exit_reason, exit_reason_desc);
 +		extern void houji26_boot_exit(unsigned, uint64_t, int, const char *, unsigned);
 +		houji26_boot_exit(p->p_exit_reason == OS_REASON_NULL ? 0 : p->p_exit_reason->osr_namespace,
 +		    p->p_exit_reason == OS_REASON_NULL ? 0 : p->p_exit_reason->osr_code,
@@ -1628,7 +1644,7 @@ diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
  
  	if (p->p_exit_reason == OS_REASON_NULL) {
  		printf("pid %d exited -- no exit reason available -- (signal %d, exit %d)\n",
-@@ -2059,6 +2083,19 @@
+@@ -2059,6 +2092,35 @@
  	int create_corpse = FALSE;
  	bool corpse_source = false;
  	task_t task = proc_task(p);
@@ -1643,6 +1659,22 @@ diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
 +	    !__atomic_exchange_n(&houji_usermanager_abort_seen, 1U, __ATOMIC_ACQ_REL)) {
 +		extern void user_abort_trace(void);
 +		user_abort_trace();
++	}
++
++	/* The first abnormal compositor exit survives the finite startup log.
++	 * Observe the exiting process without writing to the disk from this path. */
++	if ((WIFSIGNALED(rv) || WEXITSTATUS(rv)) && strcmp(proc_best_name(p), "backboardd") == 0) {
++		os_reason_t reason = p->p_exit_reason;
++		const char *description = exit_reason_get_string_desc(reason);
++		extern bool houji26_remember_display_exit(int, int, unsigned, uint64_t, const char *, unsigned);
++		bool remembered = houji26_remember_display_exit(proc_getpid(p), rv,
++		    reason == OS_REASON_NULL ? 0 : reason->osr_namespace,
++		    reason == OS_REASON_NULL ? 0 : reason->osr_code,
++		    description, houji26_exit_desc_bytes(reason, description));
++		if (remembered && p == current_proc() && WIFSIGNALED(rv) && WTERMSIG(rv) != SIGKILL) {
++			extern void user_abort_trace(void);
++			user_abort_trace();
++		}
 +	}
 +#endif
  
