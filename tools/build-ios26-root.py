@@ -83,6 +83,9 @@ def install_shared_cache_view(root):
     if alias.is_symlink() or alias.exists():
         raise ValueError('Refusing to replace an occupied system shared-cache path')
     alias.symlink_to(SHARED_CACHE_ALIAS, target_is_directory=True)
+    # HFS respects the link mode for readlink, even when its target is readable.
+    if os.chmod in os.supports_follow_symlinks:
+        os.chmod(alias, 0o755, follow_symlinks=False)
 
 
 def verify_cryptex_views(root):
@@ -98,7 +101,8 @@ def verify_cryptex_views(root):
             raise ValueError('Cryptex canonical path or stock alias is invalid: ' + name)
     cache = root / 'private/preboot/Cryptexes/OS/System/Library/Caches/com.apple.dyld'
     fallback = root / 'System/Library/Caches/com.apple.dyld'
-    if (not fallback.is_symlink() or os.readlink(fallback) != SHARED_CACHE_ALIAS or
+    if (not fallback.is_symlink() or stat.S_IMODE(fallback.lstat().st_mode) & 0o555 != 0o555 or
+            os.readlink(fallback) != SHARED_CACHE_ALIAS or
             fallback.resolve() != cache or cache.resolve() != cache):
         raise ValueError('System shared-cache fallback must resolve to the canonical Cryptex cache')
     ordinary_file(cache / 'dyld_shared_cache_arm64e')
@@ -151,6 +155,8 @@ def main():
     userland = build_files(a.userland_build)
     if userland.get('data_numeric_owners_verified') is not True:
         p.error('Rebuild the Data template from the donor with numeric ownership enabled')
+    if 'redwood/var/keybags/persona.kb' not in userland.get('files', {}):
+        p.error('Rebuild the Data template with the UserManagement first-boot manifest')
     metal, apps, compat = [build_files(d) for d in [a.metal_build, a.apps_build, a.compat_build]]
     if (metal.get('runtime_logging') is not False or
         metal.get('deployment_target') != '26.0' or apps.get('profile') != 'ios26' or

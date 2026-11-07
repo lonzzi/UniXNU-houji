@@ -279,6 +279,8 @@ stock launchd 的 main 通知在独立的一次性线程保存，避免在 sysct
 - `tools/build-ios26-metal.py`：仅接受匹配的 arm64e bridge/std 与 Turnip，生成关闭运行期诊断的 Metal bundle。
 - `tools/build-ios26-userland.py`：从固定参考源码编译最小 HFS stage0、init、inject26 和当前供体 Data 模板。
   从启用所有者的只读供体读取原始 UID/GID。模板含部分受限的子目录，构建账号需能完整遍历。
+  RAMFS 首次启动补齐供体 23G90 可读取的空 persona 清单，并保留已有清单。原版
+  usermanagerd 负责建立本轮的实际用户状态。
 - `tools/build-ios26-root.py --plan`：核对稳定 Recovery 备份、只读供体挂载及已构建组件，输出本地组装方案。
   实际组装需要 macOS 管理员认证以保存 iOS 数字所有者；只操作新建的本地 HFS 镜像，不能安装手机分区。
 

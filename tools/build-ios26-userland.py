@@ -18,6 +18,24 @@ ROOT = Path(__file__).resolve().parents[1]
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
+def seed_persona_manifest(entries, staged_var):
+    directory = '/private/var/keybags'
+    manifest = directory + '/persona.kb'
+    if not entries.get(directory, 'd\t').startswith('d\t'):
+        raise ValueError('The Data keybags path must be a directory')
+    if manifest in entries:
+        if not entries[manifest].startswith('f\t'):
+            raise ValueError('The donor persona manifest must be an ordinary file')
+        return
+    # The stock early UserManagement task is skipped on the flattened RAMFS
+    # boot path. Seed only empty first-boot state in the donor's v1 plist format.
+    staged = staged_var / 'keybags/persona.kb'
+    staged.parent.mkdir(exist_ok=True)
+    staged.write_bytes(plistlib.dumps({'UsePersonaManifestVersion': 1, 'UsePersonaGenerationID': 1,
+                                      'UserPersonaDictionary': {}}, fmt=plistlib.FMT_BINARY))
+    entries.setdefault(directory, f'd\t700\t0\t0\t{directory}')
+    entries[manifest] = f'f\t600\t0\t0\t{manifest}\t/var/keybags/persona.kb'
+
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
@@ -132,6 +150,7 @@ def main():
             directories[:] = [d for d in directories if d != 'staged_system_apps']
         for name in sorted(directories + files):
             template_directory(Path(parent) / name)
+    seed_persona_manifest(entries, helper / 'var')
     paths = subprocess.check_output(['git', '-C', str(reference), 'ls-tree', '-r', '--name-only',
                                      pin['revision'], prefix + 'var'], text=True).splitlines()
     for path in paths:

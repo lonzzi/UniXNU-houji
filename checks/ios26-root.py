@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Check the production image author's path and disk-image access guards."""
 import importlib.util
+import os
 from pathlib import Path
 import plistlib
+import stat
 import tempfile
 from unittest.mock import patch
 
@@ -10,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('ios26_root', ROOT / 'tools/build-ios26-root.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+spec = importlib.util.spec_from_file_location('ios26_userland', ROOT / 'tools/build-ios26-userland.py')
+userland = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(userland)
 
 
 def rejected(function, *args):
@@ -50,9 +55,14 @@ with tempfile.TemporaryDirectory(prefix='houji26-root-') as temporary:
     main_cache = cache / 'dyld_shared_cache_arm64e'
     main_cache.write_bytes(b'dyld_v1  arm64e\0\0')
     rejected(module.verify_cryptex_views, image)
-    module.install_shared_cache_view(image)
+    mask = os.umask(0o077)
+    try:
+        module.install_shared_cache_view(image)
+    finally:
+        os.umask(mask)
     module.verify_cryptex_views(image)
     fallback = image / 'System/Library/Caches/com.apple.dyld'
+    assert stat.S_IMODE(fallback.lstat().st_mode) & 0o555 == 0o555
     assert (fallback / main_cache.name).read_bytes() == main_cache.read_bytes()
     module.install_shared_cache_view(image)
     fallback.unlink()
@@ -81,4 +91,19 @@ with tempfile.TemporaryDirectory(prefix='houji26-root-') as temporary:
                     {'MountPoint': '/'}, {'Writable': True}]:
         with patch.object(module, 'run', return_value=plistlib.dumps({**valid, **changed})):
             rejected(module.mounted_image, image, False)
+    staged = base / 'var'
+    staged.mkdir()
+    entries = {}
+    userland.seed_persona_manifest(entries, staged)
+    persona = staged / 'keybags/persona.kb'
+    assert plistlib.loads(persona.read_bytes()) == {
+        'UsePersonaManifestVersion': 1, 'UsePersonaGenerationID': 1, 'UserPersonaDictionary': {}}
+    directory, path = '/private/var/keybags', '/private/var/keybags/persona.kb'
+    assert entries[directory].split('\t') == ['d', '700', '0', '0', directory]
+    assert entries[path].split('\t') == ['f', '600', '0', '0', path, '/var/keybags/persona.kb']
+    persona.write_bytes(b'preserve donor manifest')
+    userland.seed_persona_manifest(entries, staged)
+    assert persona.read_bytes() == b'preserve donor manifest'
+    rejected(userland.seed_persona_manifest, {directory: 'l\t/tmp\t' + directory}, staged)
 print('PASS: production image guards reject physical media, wrong access and symlink escapes; no HFS or device emulation')
+print('PASS: shared-cache alias stays readable and RAMFS persona bootstrap preserves an existing manifest')
