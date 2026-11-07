@@ -52,14 +52,15 @@ static bool bootServicesEnabled(void) {
     return enabled == 1 && bootResultsEnabled();
 }
 #if DEVELOPMENT || DEBUG
+extern "C" void houji26_report_display_fault(void);
 static uint32_t bootDisplayExitState;
 static char bootDisplayExit[256];
-extern "C" bool houji26_remember_display_exit(int pid, int status, unsigned name_space, uint64_t code,
+extern "C" void houji26_remember_display_exit(int pid, int status, unsigned name_space, uint64_t code,
     const char *description, unsigned bytes) {
-    if (!bootServicesEnabled()) return false;
+    if (!bootServicesEnabled()) return;
     unsigned expected = 0;
     if (!__atomic_compare_exchange_n(&bootDisplayExitState, &expected, 1U, false,
-        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return false;
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return;
     if (bytes > 152) bytes = 152;
     if (!description) bytes = 0;
     snprintf(bootDisplayExit, sizeof(bootDisplayExit), "pid=%d status=%x namespace=%u subcode=%llx description=%.*s",
@@ -69,7 +70,6 @@ extern "C" bool houji26_remember_display_exit(int pid, int status, unsigned name
         if (*p == '\n' || *p == '\r') *p = ' ';
     }
     __atomic_store_n(&bootDisplayExitState, 2U, __ATOMIC_RELEASE);
-    return true;
 }
 #endif
 static void saveBootResult(const char *kind, const char *object, int result, const char *detail) {
@@ -142,6 +142,7 @@ extern "C" void houji26_boot_gpu_end(unsigned code, uint64_t elapsed_us) {
         if (__atomic_load_n(&bootDisplayExitState, __ATOMIC_ACQUIRE) == 2U) {
             IOLog("HOUJI26 BACKBOARDD FIRST EXIT: %s\n", bootDisplayExit);
         }
+        houji26_report_display_fault();
 #endif
         saveBootResult("gpu-runtime-end", "mode=3", static_cast<int>(code), detail);
     }

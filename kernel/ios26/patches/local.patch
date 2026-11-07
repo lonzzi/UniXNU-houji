@@ -1644,7 +1644,7 @@ diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
  
  	if (p->p_exit_reason == OS_REASON_NULL) {
  		printf("pid %d exited -- no exit reason available -- (signal %d, exit %d)\n",
-@@ -2059,6 +2092,35 @@
+@@ -2059,6 +2092,31 @@
  	int create_corpse = FALSE;
  	bool corpse_source = false;
  	task_t task = proc_task(p);
@@ -1666,15 +1666,11 @@ diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
 +	if ((WIFSIGNALED(rv) || WEXITSTATUS(rv)) && strcmp(proc_best_name(p), "backboardd") == 0) {
 +		os_reason_t reason = p->p_exit_reason;
 +		const char *description = exit_reason_get_string_desc(reason);
-+		extern bool houji26_remember_display_exit(int, int, unsigned, uint64_t, const char *, unsigned);
-+		bool remembered = houji26_remember_display_exit(proc_getpid(p), rv,
++		extern void houji26_remember_display_exit(int, int, unsigned, uint64_t, const char *, unsigned);
++		houji26_remember_display_exit(proc_getpid(p), rv,
 +		    reason == OS_REASON_NULL ? 0 : reason->osr_namespace,
 +		    reason == OS_REASON_NULL ? 0 : reason->osr_code,
 +		    description, houji26_exit_desc_bytes(reason, description));
-+		if (remembered && p == current_proc() && WIFSIGNALED(rv) && WTERMSIG(rv) != SIGKILL) {
-+			extern void user_abort_trace(void);
-+			user_abort_trace();
-+		}
 +	}
 +#endif
  
@@ -1795,3 +1791,114 @@ diff --git a/bsd/kern/kern_proc.c b/bsd/kern/kern_proc.c
  void
  proc_rebootscan(
  	proc_iterate_fn_t callout,
+diff --git a/osfmk/arm64/user_exception_trace.c b/osfmk/arm64/user_exception_trace.c
+--- a/osfmk/arm64/user_exception_trace.c
++++ b/osfmk/arm64/user_exception_trace.c
+@@ -23,6 +23,9 @@
+ #include <vm/vm_map_xnu.h>          /* xnu-12377 split the kernel-internal VM API into *_xnu.h */
+ #include <vm/vm_shared_region.h>
+ #include <vm/vm_shared_region_xnu.h>
++#if HOUJI_IOS26 && (DEVELOPMENT || DEBUG)
++#include <kdp/kdp_dyld.h>
++#endif
+ 
+ extern char *proc_name_address(struct proc *p);
+ 
+@@ -35,6 +38,83 @@
+ {
+ 	return address >= 0x100000000ULL && address < MACH_VM_MAX_ADDRESS;
+ }
++
++#if HOUJI_IOS26 && (DEVELOPMENT || DEBUG)
++static TUNABLE(uint32_t, houji26_display_fault_enabled, "houji_pid1_services", 0);
++static uint32_t houji26_display_fault_state;
++static struct {
++	int pid;
++	uint32_t esr, slide;
++	uint64_t code[2], pc, lr, far, image0, frames[6];
++} houji26_display_fault;
++
++static void
++houji26_record_display_fault(mach_exception_data_t code, mach_msg_type_number_t count, thread_t thread)
++{
++	task_t task = get_threadtask(thread);
++	struct proc *proc = get_bsdtask_info(task);
++	const arm_saved_state_t *state = get_user_regs(thread);
++	if (!proc || strcmp(proc_name_address(proc), "backboardd") != 0 ||
++	    !state || !is_saved_state64(state)) {
++		return;
++	}
++	uint32_t expected = 0;
++	if (!__atomic_compare_exchange_n(&houji26_display_fault_state, &expected, 1U, false,
++	    __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
++		return;
++	}
++	houji26_display_fault.pid = proc_pid(proc);
++	houji26_display_fault.code[0] = count > 0 ? code[0] : 0;
++	houji26_display_fault.code[1] = count > 1 ? code[1] : 0;
++	houji26_display_fault.pc = get_saved_state_pc(state);
++	houji26_display_fault.lr = get_saved_state_lr(state);
++	houji26_display_fault.far = get_saved_state_far(state);
++	houji26_display_fault.esr = get_saved_state_esr(state);
++	vm_shared_region_t region = vm_shared_region_get(task);
++	if (region) {
++		houji26_display_fault.slide = region->sr_slide;
++		vm_shared_region_deallocate(region);
++	}
++	struct user64_dyld_all_image_infos infos;
++	struct user64_dyld_image_info image;
++	user_addr_t dyld_info = task_get_all_image_info_addr(task);
++	if (plausible_user_address(dyld_info) && copyin(dyld_info, &infos, sizeof(infos)) == 0 &&
++	    infos.infoArrayCount && plausible_user_address(infos.infoArray) &&
++	    copyin(infos.infoArray, &image, sizeof(image)) == 0) {
++		houji26_display_fault.image0 = image.imageLoadAddress;
++	}
++	uint64_t fp = get_saved_state_fp(state), frame[2];
++	for (unsigned i = 0; i < sizeof(houji26_display_fault.frames) / sizeof(uint64_t) &&
++	    plausible_user_address(fp) && (fp & 7) == 0; ++i) {
++		if (copyin((user_addr_t)fp, frame, sizeof(frame)) != 0) {
++			break;
++		}
++		houji26_display_fault.frames[i] = frame[1];
++		if (frame[0] <= fp) {
++			break;
++		}
++		fp = frame[0];
++	}
++	__atomic_store_n(&houji26_display_fault_state, 2U, __ATOMIC_RELEASE);
++}
++
++void houji26_report_display_fault(void);
++
++void
++houji26_report_display_fault(void)
++{
++	if (__atomic_load_n(&houji26_display_fault_state, __ATOMIC_ACQUIRE) != 2U) {
++		return;
++	}
++	printf("HOUJI26 BACKBOARDD FIRST FAULT: pid=%d code=%#llx/%#llx pc=%#llx lr=%#llx far=%#llx esr=%#x slide=%#x image0=%#llx\n",
++	    houji26_display_fault.pid, houji26_display_fault.code[0], houji26_display_fault.code[1],
++	    houji26_display_fault.pc, houji26_display_fault.lr, houji26_display_fault.far, houji26_display_fault.esr,
++	    houji26_display_fault.slide, houji26_display_fault.image0);
++	const uint64_t *frames = houji26_display_fault.frames;
++	printf("HOUJI26 BACKBOARDD FIRST FAULT FRAMES: %#llx %#llx %#llx %#llx %#llx %#llx\n",
++	    frames[0], frames[1], frames[2], frames[3], frames[4], frames[5]);
++}
++#endif
+ 
+ void
+ user_exception_trace(exception_type_t exception, mach_exception_data_t code, mach_msg_type_number_t count, thread_t thread)
+@@ -47,6 +127,13 @@
+ 	task_t task;
+ 	struct proc *proc;
+ 
++#if HOUJI_IOS26 && (DEVELOPMENT || DEBUG)
++	/* Retain one compositor fault independently of the global exception trace. */
++	if (houji26_display_fault_enabled == 1 && exception == EXC_BAD_ACCESS &&
++	    thread == current_thread()) {
++		houji26_record_display_fault(code, count, thread);
++	}
++#endif
+ 	if (!user_exception_trace_enabled || thread != current_thread()) {
+ 		return;
+ 	}

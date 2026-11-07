@@ -1360,3 +1360,8 @@ OrangeFox 在 292 秒重新连接，本轮记录通过标识和 CRC 校验。fra
 同一轮后期有多个 backboardd 退出的 corpse 事件。内核时间约 212.8 秒
 取到的主线程栈位于 `-[BLControl waitForALSArrival]`，供体实现对此最多等待
 5 秒，超时后继续启动。首次退出的原因尚需单独保留。
+
+v24 在同一个根卷和启动配置下重复了 4 次 backboardd 提交与 0 次交换。
+首次异常退出记录为 `status=b namespace=2 subcode=b`，即 signal 11
+（SIGSEGV），没有退出描述。OrangeFox 在 291 秒重新连接，启动记录通过
+CRC 校验。下一步使用同一个有限回读保存首次用户访问异常的地址和寄存器。
