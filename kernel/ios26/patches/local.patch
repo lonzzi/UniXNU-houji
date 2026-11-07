@@ -1628,6 +1628,26 @@ diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
  
  	if (p->p_exit_reason == OS_REASON_NULL) {
  		printf("pid %d exited -- no exit reason available -- (signal %d, exit %d)\n",
+@@ -2059,6 +2083,19 @@
+ 	int create_corpse = FALSE;
+ 	bool corpse_source = false;
+ 	task_t task = proc_task(p);
++
++
++#if HOUJI_IOS26 && (DEVELOPMENT || DEBUG)
++	/* Keep the first UserManager abort stack when early exit diagnostics
++	 * are requested. The exiting thread still owns its user registers. */
++	static unsigned int houji_usermanager_abort_seen;
++	if (p == current_proc() && p->p_pid <= exception_log_max_pid &&
++	    WTERMSIG(rv) == SIGABRT && strcmp(proc_best_name(p), "usermanagerd") == 0 &&
++	    !__atomic_exchange_n(&houji_usermanager_abort_seen, 1U, __ATOMIC_ACQ_REL)) {
++		extern void user_abort_trace(void);
++		user_abort_trace();
++	}
++#endif
+ 
+ 
+ 	if (p->p_crash_behavior != 0 || p == initproc) {
 diff --git a/bsd/kern/kern_xxx.c b/bsd/kern/kern_xxx.c
 --- a/bsd/kern/kern_xxx.c
 +++ b/bsd/kern/kern_xxx.c

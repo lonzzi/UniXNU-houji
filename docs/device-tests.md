@@ -1329,3 +1329,12 @@ GPU 查询返回 0，backboardd 提交数和 framebuffer 交换、复制计数�
 仍为 98。Metal 属性读取和插件启动标记都是 0，连接计数仍为两次打开和两次关闭，
 客户端记录仅有 kernel_task。单次服务记录仍确认五个进程存在。下一处验证边界是
 backboardd 到显示和 Metal 设备的接入。
+
+v19 的自动回读确认 `disp0` 已复用，framebuffer 服务已发布，逻辑尺寸为
+1206×2622。测试结束时用户客户端初始化尝试、连接和 selector 位图均为 0。
+v20 在相同显示配置下取一次 backboardd 线程栈。按本轮 shared-cache slide 和供体
+23G90 的符号解析，主线程停在 BoardServices 初始化中的
+`RBSConnection managedEndpointByLaunchIdentifier`，连接线程停在
+`RBSConnection _handshake` 下的 `xpc_connection_send_message_with_reply_sync`。
+这次捕获显示连接尚未建立，也记录到 usermanagerd 两次 signal 6 退出。两者的依赖
+关系仍需从 runningboardd 服务端查证。

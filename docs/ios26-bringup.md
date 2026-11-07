@@ -333,3 +333,7 @@ framebuffer 几何继续从启动交接取得，由显示驱动负责缩放。�
 匹配的 `/arm-io/disp0`，缺少该节点时才添加。固定启动文件同时保留节点状态、
 逻辑尺寸、framebuffer 客户端启动数与已调用 selector 的位图。位图使用原有的有限
 `fbtrace` 入口，便于把等待显示服务与连接之后的初始化分开定位。
+
+v20 的单次 backboardd 栈显示它在 BoardServices 初始化期间等待 RunningBoard 的
+同步 XPC 握手。开发内核启用 `exception_log_max_pid` 时，可额外保存符合该 PID
+上限的首个 usermanagerd `SIGABRT` 用户栈。该栈复用已有的异常诊断入口。

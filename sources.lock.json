@@ -544,7 +544,7 @@
     },
     "testing_paused_by_user": false,
     "latest_device_result": {
-      "profile": "full-system-v18-stock-services-and-GPU-exit",
+      "profile": "full-system-v20-backboardd-runningboard-handshake",
       "kernel_entry_verified": true,
       "native_UFS_initialized": true,
       "native_HFSX_identity_verified": true,
@@ -554,7 +554,7 @@
       "user_entry_verified": true,
       "GPU_verified": false,
       "GUI_verified": false,
-      "result": "Current-trial CRC verifies stock launchd main, early boot completion, five present services, and mode 3 worker result 0 after 180.429749 seconds. The final snapshot observes zero backboardd submits, zero framebuffer swaps and copies, zero Metal plugin property reads and zero plugin initialization markers. The provider remains at the startup self-test fence 98 with two opens and two closes. OrangeFox returned within 298 seconds of host boot handoff.",
+      "result": "The corrected framebuffer mode is 1206x2622 and the existing disp0 is reused. The registered framebuffer still has zero client initialization attempts at trial end. The donor-symbolized single stack shows backboardd blocked in BoardServices initialization waiting for RunningBoard, with the RBSConnection handshake thread in a synchronous XPC reply wait. Early exit events report usermanagerd signal 6; its causal relation to the handshake has not been established.",
       "native_HFSX_mounted": true,
       "init_exec_attempted": true,
       "GPU_2D_startup_self_test": {
@@ -591,7 +591,7 @@
         "critical_exit_recorded": false,
         "detailed_vnode_MachO_records_enabled": false,
         "initproc_spawned_accepted": true,
-        "stock_launchd_main_kernel_seconds": 86.762258
+        "stock_launchd_main_kernel_seconds": 86.836113
       },
       "recovery_seen_within_seconds": 298,
       "coherence_probe": {
@@ -617,8 +617,7 @@
       "stock_launchd_dyld_reached": true,
       "stock_launchd_main_verified": true,
       "service_snapshot": {
-        "kernel_seconds": 116.796718,
-        "launchd_early_boot_complete_kernel_seconds": 93.503572,
+        "kernel_seconds": 116.878686,
         "processes_present": [
           "notifyd",
           "backboardd",
@@ -634,10 +633,10 @@
         "visible_desktop_verified": false
       },
       "GPU_worker_exit_snapshot": {
-        "kernel_seconds": 261.939491,
+        "kernel_seconds": 262.00064,
         "mode": 3,
         "result": 0,
-        "elapsed_us": 180429749,
+        "elapsed_us": 180428552,
         "gpu_query_status": 0,
         "backboardd_submits": 0,
         "submit_errors": 0,
@@ -651,6 +650,23 @@
         ],
         "framebuffer_swaps": 0,
         "framebuffer_CPU_copies": 0
+      },
+      "display_initialization": {
+        "registered": true,
+        "node": "reused",
+        "logical_width": 1206,
+        "logical_height": 2622,
+        "client_init_attempts": 0,
+        "clients_started": 0,
+        "selector_bitmap": 0
+      },
+      "userspace_wait": {
+        "single_sample_kernel_seconds": 213.66359,
+        "process": "backboardd",
+        "symbol_donor": "23G90 / iPhone18,1",
+        "main": "BSServicesConfiguration bootstrapConfiguration -> RBSConnection managedEndpointByLaunchIdentifier",
+        "connection": "RBSConnection _handshake -> xpc_connection_send_message_with_reply_sync",
+        "usermanagerd_signal": 6
       }
     },
     "rust": {
