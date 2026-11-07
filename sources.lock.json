@@ -811,7 +811,14 @@
       "ADSP_carveout_writes": "iOS26 only: bounded volatile aligned 32-bit stores, partial-word neighbor preservation, overflow checks; avoid bulk memcpy/bzero/DC ZVA on Device-typed reserved firmware RAM. Existing image placement/PAS/range rules and GPU NC whitelist unchanged. DTB metadata begin/accepted startup checkpoints distinguish PAS from segment writes; hardware qualification pending.",
       "filesystem_selection": "houji_native_root=1 accepts only the registered hfs filesystem and refuses an alternate mountroot callback. No fallback to always-successful mockfs. RAM-only native_root=0 preserves prior filesystem selection. Mount callback type/result are printed at startup; actual HFS mount verified in full-system v14 through v16.",
       "cryptex_layout": "Canonical OS/App contents in private/preboot/Cryptexes with stock System/Cryptexes symlinks. The default system shared-cache directory links to the unchanged Cryptex cache. v16 verified stock launchd main with this root layout.",
-      "pid1_services_snapshot": "Optional houji_pid1_services=1 with the same startup, native-root and Recovery gates. The existing main worker saves one additional record after 30 seconds. It checks five live process names and calls the existing GPU submission counter query once. A successful query gives counters at the snapshot time. The first terminal result keeps its own slot. A mode 3 worker also saves one exit-code and counter record from normal context before provider teardown. A successful bounded run with a stopped provider returns through the time-limit screen."
+      "pid1_services_snapshot": "Optional houji_pid1_services=1 with the same startup, native-root and Recovery gates. The existing main worker saves one additional record after 30 seconds. It checks five live process names and calls the existing GPU submission counter query once. A successful query gives counters at the snapshot time. The first terminal result keeps its own slot. A mode 3 worker also saves one exit-code and counter record from normal context before provider teardown. A successful bounded run with a stopped provider returns through the time-limit screen.",
+      "logical_display": {
+        "donor": "iPhone18,1 / 23G90",
+        "width": 1206,
+        "height": 2622,
+        "device_tree": "Reuse the existing display-subsystem at /arm-io/disp0; add only if absent.",
+        "startup_observation": "Existing bounded snapshot includes logical size, display-node state, framebuffer client starts and the traced selector bitmap."
+      }
     },
     "minimum_device_result": {
       "kernel_entry_verified": true,

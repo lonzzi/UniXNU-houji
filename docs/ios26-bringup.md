@@ -327,3 +327,9 @@ v16 使用新增默认缓存入口的 v5 根卷。自动回读通过本轮标识
 约 86.8 秒记录 `stock-launchd-main`，`initproc_spawned` 已由内核接受。此轮越过了
 之前的缺库退出。v17 的单次回读确认五个系统进程存在，包括 backboardd 和 SpringBoard。
 当时 GPU fence 为启动自检的 98，尚无 backboardd 提交或 framebuffer 交换。
+
+完整系统配置按 iPhone18,1 供体报告 1206×2622 的逻辑显示尺寸。小米 14 的实际
+framebuffer 几何继续从启动交接取得，由显示驱动负责缩放。驱动复用设备树中类型
+匹配的 `/arm-io/disp0`，缺少该节点时才添加。固定启动文件同时保留节点状态、
+逻辑尺寸、framebuffer 客户端启动数与已调用 selector 的位图。位图使用原有的有限
+`fbtrace` 入口，便于把等待显示服务与连接之后的初始化分开定位。

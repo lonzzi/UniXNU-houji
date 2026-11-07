@@ -786,7 +786,6 @@ index 1cd1f53..d16325f 100644
  		if (propertiesDict) {
  			propertiesDict->release();
 diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
-index 78a3b14..912f34e 100644
 --- a/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 +++ b/iokit/Kernel/MiniIOMobileFramebuffer.cpp
 @@ -12,6 +12,8 @@
@@ -798,7 +797,7 @@ index 78a3b14..912f34e 100644
  #include <IOKit/IOKitKeys.h>
  #include <IOKit/IOService.h>
  #include <IOKit/IOUserClient.h>
-@@ -39,6 +41,43 @@ extern struct vc_info vinfo;            /* the boot framebuffer, as the text con
+@@ -39,6 +41,48 @@
  #include <IOKit/IOBufferMemoryDescriptor.h>
  
  #include "MiniIOSurface.h"
@@ -808,6 +807,11 @@ index 78a3b14..912f34e 100644
 +#include "arm/HoujiPresent26.h"
 +#include <mach/vm_param.h>
 +static uint64_t houji26Swaps, houji26Presents;
++static uint64_t houji26FBMethodMask[2];
++static uint32_t houji26FBOpenAttempts, houji26FBClientStarts;
++static bool houji26FBPublished;
++enum { kHoujiDisplayMissing, kHoujiDisplayReused, kHoujiDisplayAdded, kHoujiDisplayConflict };
++static unsigned houji26DisplayNode;
 +struct HoujiCache26 {
 +    unsigned attribute(uintptr_t address) {
 +        uint64_t result;
@@ -842,7 +846,7 @@ index 78a3b14..912f34e 100644
  
  extern "C" void redwood_tl(const char * format, ...) __printflike(1, 2);
  /* dada: the display controller showing the frames from buffers of its own (bsd/dev/hakios_dada_dpu.c, dadascan=1) */
-@@ -268,6 +307,9 @@ public:
+@@ -268,6 +312,9 @@
  	uint8_t         fSwap[SWAP_QUEUE][SWAP_SIZE];   /* the swaps on their way to the panel (fb_queue), from fSwapFirst on */
  	MiniIOSurface * fSwapSurfaces[SWAP_QUEUE][SWAP_LAYERS]; /* ... their surfaces, held from SwapEnd on: their maker may let go of them */
  	unsigned        fSwapFirst, fSwapsWaiting;
@@ -852,7 +856,7 @@ index 78a3b14..912f34e 100644
  	/*
  	 * ... and not whenever the GPU happens to be done, but on a beat of the refresh rate
  	 * (boot-arg fb_beat=0: at once): frames then follow each other at an even pace whatever
-@@ -567,6 +609,9 @@ IOMobileFramebuffer::start(IOService * provider)
+@@ -567,6 +614,9 @@
  		IOLog("MiniIOMobileFramebuffer: the display controller shows the frames from buffers of its own\n");
  	}
  	gFramebuffer = this;
@@ -862,7 +866,17 @@ index 78a3b14..912f34e 100644
  
  	if (gRecSeconds != 0) {
  		/* one piece of physical memory: the loader will send it over USB as it lies */
-@@ -995,6 +1040,9 @@ IOMobileFramebuffer::present(const uint8_t * swap)
+@@ -600,6 +650,9 @@
+ 	publishModes();
+ 	setName("disp0");
+ 	registerService();
++#if HOUJI_IOS26
++    __atomic_store_n(&houji26FBPublished, true, __ATOMIC_RELEASE);
++#endif
+ 	return true;
+ }
+ 
+@@ -995,6 +1048,9 @@
  	if (gTouchLat) {
  		redwood_tl("tl: s %u at %llu\n", swapWord(swap, SWAP_ID), micros(now));
  	}
@@ -872,7 +886,7 @@ index 78a3b14..912f34e 100644
  	IOLockLock(fSwapLock);
  	fStatSwapsLate += fSwapTime != 0 && now - fSwapTime > period && now - fSwapTime < pause;
  	fSwapTime = now;
-@@ -1010,12 +1058,18 @@ IOMobileFramebuffer::present(const uint8_t * swap)
+@@ -1010,12 +1066,18 @@
  	unsigned slot = (fSwapFirst + fSwapsWaiting) % SWAP_QUEUE;
  
  	memcpy(fSwap[slot], swap, SWAP_SIZE);
@@ -891,7 +905,7 @@ index 78a3b14..912f34e 100644
  	IOLockWakeup(fSwapLock, fSwap, true);
  	IOLockUnlock(fSwapLock);
  }
-@@ -1039,8 +1093,23 @@ IOMobileFramebuffer::presenter(void)
+@@ -1039,8 +1101,23 @@
  		}
  		memcpy(swap, fSwap[fSwapFirst], SWAP_SIZE);
  		memcpy(surfaces, fSwapSurfaces[fSwapFirst], sizeof(surfaces));
@@ -915,7 +929,7 @@ index 78a3b14..912f34e 100644
  		for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
  			if (surfaces[layer] != NULL) {
  				MiniIOSurfaceDrop(surfaces[layer]);
-@@ -1106,6 +1175,7 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
+@@ -1106,6 +1183,7 @@
  	 * (still frames are the same picture). A surface whose last submission has not changed since it was last shown is waited for, up
  	 * to SWAP_NEW_MS, to be named by a newer one; then for the GPU, as before.
  	 */
@@ -923,7 +937,7 @@ index 78a3b14..912f34e 100644
  	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
  		MiniIOSurface * s = surfaces[layer];
  		unsigned slot;
-@@ -1139,6 +1209,7 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
+@@ -1139,6 +1217,7 @@
  			    swapWord(swap, SWAP_ID), swapWord(swap, SWAP_SURFACE(layer)), SWAP_GPU_MS);
  		}
  	}
@@ -931,7 +945,7 @@ index 78a3b14..912f34e 100644
  	fStatWaiting += mach_absolute_time() - began;
  	began = ready = mach_absolute_time();
  	if (gOnTheBeat && !fScan) {        /* (scanning out, the display's own refresh paces the frames) */
-@@ -1276,6 +1347,10 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
+@@ -1276,6 +1355,10 @@
  		record(recorded);
  	}
  	fSwapsShown++;
@@ -942,7 +956,74 @@ index 78a3b14..912f34e 100644
  	if (gTouchLat) {
  		redwood_tl("tl: v %u ready %llu shown %llu done %llu\n", swapWord(swap, SWAP_ID), micros(ready), micros(shown),
  		    micros(drawn));
-@@ -1779,13 +1854,7 @@ publishDisplayNode(void)
+@@ -1420,6 +1503,9 @@
+ bool
+ IOMobileFramebufferUserClient::initWithTask(task_t owningTask, void * securityID, UInt32 type, OSDictionary * properties)
+ {
++#if HOUJI_IOS26
++    __atomic_fetch_add(&houji26FBOpenAttempts, 1U, __ATOMIC_RELAXED);
++#endif
+ 	if (!IOUserClient::initWithTask(owningTask, securityID, type, properties)) {
+ 		return false;
+ 	}
+@@ -1441,7 +1527,11 @@
+ 	}
+ 	fLock = IOLockAlloc();
+ 	fVSyncCall = thread_call_allocate(&IOMobileFramebufferUserClient::vsyncFired, this);
+-	return fLock != NULL && fVSyncCall != NULL;
++	bool ready = fLock != NULL && fVSyncCall != NULL;
++#if HOUJI_IOS26
++    if (ready) __atomic_fetch_add(&houji26FBClientStarts, 1U, __ATOMIC_RELAXED);
++#endif
++	return ready;
+ }
+ 
+ IOReturn
+@@ -1568,6 +1658,9 @@
+ 		char procname[32] = "?";
+ 
+ 		gFBCalls[selector]++;
++#if HOUJI_IOS26
++        __atomic_fetch_or(&houji26FBMethodMask[selector / 64], 1ULL << (selector % 64), __ATOMIC_RELAXED);
++#endif
+ 		proc_selfname(procname, sizeof(procname));
+ 		IOLog("MiniIOMobileFramebuffer: %s[%d] selector %u (scalars %u in [0x%llx 0x%llx 0x%llx 0x%llx], %u out; "
+ 		    "structure %u in, %u out)\n", procname, proc_selfpid(), selector, args->scalarInputCount,
+@@ -1740,6 +1833,19 @@
+ 		IOLog("MiniIOMobileFramebuffer: no /arm-io in the device tree\n");
+ 		return;
+ 	}
++#if HOUJI_IOS26
++    // The houji ADT already describes its primary display. A second child
++    // makes IOMobileFramebuffer wait for a second display service.
++    if (IORegistryEntry *existing = IORegistryEntry::fromPath("/arm-io/disp0", gIODTPlane)) {
++        const OSData *type = OSDynamicCast(OSData, existing->getProperty("device_type"));
++        const bool display = type && type->getLength() == sizeof("display-subsystem") &&
++            memcmp(type->getBytesNoCopy(), "display-subsystem", sizeof("display-subsystem")) == 0;
++        __atomic_store_n(&houji26DisplayNode, display ? kHoujiDisplayReused : kHoujiDisplayConflict, __ATOMIC_RELEASE);
++        existing->release();
++        armio->release();
++        return;
++    }
++#endif
+ 	node = OSTypeAlloc(IORegistryEntry);
+ 	props = OSDictionary::withCapacity(4);
+ 	if (node != NULL && props != NULL) {
+@@ -1754,7 +1860,13 @@
+ 		OSSafeReleaseNULL(data);
+ 		if (node->init(props)) {
+ 			node->setName("disp0");
++	#if HOUJI_IOS26
++            if (node->attachToParent(armio, gIODTPlane)) {
++                __atomic_store_n(&houji26DisplayNode, kHoujiDisplayAdded, __ATOMIC_RELEASE);
++            }
++#else
+ 			node->attachToParent(armio, gIODTPlane);
++#endif
+ 		}
+ 	}
+ 	OSSafeReleaseNULL(props);
+@@ -1779,13 +1891,7 @@
  
  static bool gAcceleratorTakesProperties;        /* boot-arg metal=1 */
  
@@ -957,7 +1038,7 @@ index 78a3b14..912f34e 100644
  
  OSDefineMetaClassAndStructors(IOAcceleratorES, IOService);
  
-@@ -1930,10 +1999,29 @@ MiniIOMobileFramebufferStart(IOService * provider)
+@@ -1930,10 +2036,37 @@
  		return;
  	}
  	if (fb->start(provider)) {
@@ -981,11 +1062,19 @@ index 78a3b14..912f34e 100644
 +extern "C" unsigned houji_framebuffer_snapshot(char *out, unsigned capacity) {
 +    if (!out || !capacity) return 0;
 +    uint64_t swaps = 0, presents = 0; houji_framebuffer_counts(&swaps, &presents);
-+    int written = snprintf(out, capacity, "HOUJI26 FRAMEBUFFER: swaps=%llu CPU-copies=%llu; not panel FPS\n", swaps, presents);
++    const bool published = __atomic_load_n(&houji26FBPublished, __ATOMIC_ACQUIRE);
++    const char *const nodeStates[] = {"missing", "reused", "added", "conflict"};
++    int written = snprintf(out, capacity,
++        "HOUJI26 FRAMEBUFFER: swaps=%llu CPU-copies=%llu\n"
++        "HOUJI26 DISPLAY STARTUP: node=%s published=%u logical=%ux%u open-attempts=%u clients=%u methods=%016llx/%016llx\n",
++        swaps, presents, nodeStates[__atomic_load_n(&houji26DisplayNode, __ATOMIC_ACQUIRE)], (unsigned)published,
++        published ? gFramebuffer->fWidth : 0, published ? gFramebuffer->fHeight : 0,
++        __atomic_load_n(&houji26FBOpenAttempts, __ATOMIC_RELAXED), __atomic_load_n(&houji26FBClientStarts, __ATOMIC_RELAXED),
++        __atomic_load_n(&houji26FBMethodMask[0], __ATOMIC_RELAXED), __atomic_load_n(&houji26FBMethodMask[1], __ATOMIC_RELAXED));
 +    return written > 0 ? ((unsigned)written < capacity ? (unsigned)written : capacity - 1) : 0;
 +}
 +extern "C" void houji_framebuffer_report(void) {
-+    char line[192]; houji_framebuffer_snapshot(line, sizeof(line)); IOLog("%s", line);
++    char line[384]; houji_framebuffer_snapshot(line, sizeof(line)); IOLog("%s", line);
 +}
 +extern "C" void houji_framebuffer_history_report(void) { houji_framebuffer_report(); }
 +#endif
