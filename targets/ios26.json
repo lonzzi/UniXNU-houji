@@ -3,7 +3,7 @@
   "board": "houji",
   "soc": "SM8650",
   "gpu": "Adreno 750",
-  "status": "native-hfs-root-and-gpu-2d-verified-userland-pending",
+  "status": "native-hfsx-system-gpu-submission-and-touch-verified",
   "hardware_boot_verified": true,
   "userland": {
     "architecture": "arm64e",
@@ -55,5 +55,5 @@
     "darwin_version": "25.6.0"
   },
   "testing_paused_by_user": false,
-  "hardware_boot_scope": "RAM static arm64e PID1 and single-CPU HFS-root / dedicated GPU 2D startup; no stock launchd, desktop, Metal shader or eight-CPU qualification"
+  "hardware_boot_scope": "Native HFSX, stock launchd, system UI and A750 compositor submissions verified on eight CPUs in v33. Native touch worked in v29. v34 restored the battery indicator. Interactive frame rate, wallpaper, USB transitions and manual brightness remain under test."
 }

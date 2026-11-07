@@ -70,7 +70,6 @@ index c99e22e..0853001 100644
 +bsd/sweet_hfs/hfs_encodings/hfs_encodings.c		optional sweet_hfs
 +bsd/sweet_hfs/sweet_hfs_iokit.c		optional sweet_hfs
 diff --git a/bsd/dev/memdev.c b/bsd/dev/memdev.c
-index 1cc966a..cdfa4b4 100644
 --- a/bsd/dev/memdev.c
 +++ b/bsd/dev/memdev.c
 @@ -90,6 +90,10 @@
@@ -84,7 +83,7 @@ index 1cc966a..cdfa4b4 100644
  
  #include <vm/pmap.h>
  #include <vm/vm_pager_xnu.h>
-@@ -167,6 +171,8 @@ struct mdev {
+@@ -167,6 +171,8 @@
  	int                     mdCDev;         /* Character device number */
  	void *          mdbdevb;
  	void *          mdcdevb;
@@ -93,11 +92,10 @@ index 1cc966a..cdfa4b4 100644
  } mdev[NB_MAX_MDEVICES];
  
  /* mdFlags */
-@@ -207,6 +213,43 @@ mdevopen(dev_t dev, int flags, __unused int devtype, __unused struct proc *p)
- 	return 0;
+@@ -208,6 +214,43 @@
  }
  
-+static int
+ static int
 +mdevrw_ops(struct mdev *md, struct uio *uio)
 +{
 +	const size_t bounce_bytes = 64 * 1024;
@@ -134,10 +132,11 @@ index 1cc966a..cdfa4b4 100644
 +	return error;
 +}
 +
- static int
++static int
  mdevrw(dev_t dev, struct uio *uio, __unused int ioflag)
  {
-@@ -230,7 +273,15 @@ mdevrw(dev_t dev, struct uio *uio, __unused int ioflag)
+ 	int                     status;
+@@ -230,7 +273,15 @@
  	if (uio_resid(uio) < 0) {
  		return EINVAL;
  	}
@@ -154,7 +153,7 @@ index 1cc966a..cdfa4b4 100644
  
  	saveflag = uio->uio_segflg;                                                     /* Remember what the request is */
  	/* Make sure we are moving from physical ram if physical device */
-@@ -239,19 +290,15 @@ mdevrw(dev_t dev, struct uio *uio, __unused int ioflag)
+@@ -239,19 +290,15 @@
  			uio->uio_segflg = UIO_PHYS_USERSPACE64;
  		} else if (uio->uio_segflg == UIO_USERSPACE32) {
  			uio->uio_segflg = UIO_PHYS_USERSPACE32;
@@ -179,7 +178,7 @@ index 1cc966a..cdfa4b4 100644
  	status = uiomove64(mdata, count, uio);     /* Move the data */
  	uio->uio_segflg = saveflag;                                                     /* Restore the flag */
  
-@@ -262,14 +309,16 @@ static void
+@@ -262,14 +309,16 @@
  mdevstrategy(struct buf *bp)
  {
  	unsigned int left, lop, csize;
@@ -198,7 +197,7 @@ index 1cc966a..cdfa4b4 100644
  		buf_seterror(bp, ENXIO);
  		buf_biodone(bp);
  		return;
-@@ -277,24 +326,28 @@ mdevstrategy(struct buf *bp)
+@@ -277,28 +326,59 @@
  
  	buf_setresid(bp, buf_count(bp));                                                /* Set byte count */
  
@@ -227,20 +226,30 @@ index 1cc966a..cdfa4b4 100644
  
 -	if ((blkoff + buf_count(bp)) > (mdev[devid].mdSize << 12)) {            /* Will this read go past end? */
 -		buf_setcount(bp, (uint32_t)((mdev[devid].mdSize << 12) - blkoff));  /* Yes, trim to max */
--	}
 +	buf_setcount(bp, (uint32_t)mdev_transfer_bytes(disk_bytes, blkoff,
 +	    buf_count(bp), UINT32_MAX));
- 	/*
- 	 * make sure the buffer's data area is
- 	 * accessible
-@@ -303,6 +356,19 @@ mdevstrategy(struct buf *bp)
- 		panic("ramstrategy: buf_map failed");
- 	}
- 
 +	if (mdev[devid].mdOps != NULL) {
-+		int error = mdev[devid].mdOps->transfer(mdev[devid].mdContext, blkoff,
-+		    (void *)vaddr, buf_count(bp), (buf_flags(bp) & B_READ) == 0);
-+		buf_unmap(bp);
++		caddr_t buffer = NULL;
++		int error = 0;
++		if (buf_count(bp) != 0) {
++			/* Cluster I/O can split one UPL across multiple buffers. Hold
++			 * XNU's exclusive mapping for just this synchronous transfer. */
++			error = buf_map_range(bp, &buffer);
++			if (error == 0) {
++				error = buffer ? mdev[devid].mdOps->transfer(mdev[devid].mdContext,
++				    blkoff, buffer, buf_count(bp), (buf_flags(bp) & B_READ) == 0) : EFAULT;
++				int unmap_error = buf_unmap_range(bp);
++				if (error == 0) {
++					error = unmap_error;
++				}
++			} else {
++				static unsigned reported_map_error;
++				if (__atomic_exchange_n(&reported_map_error, 1U, __ATOMIC_RELAXED) == 0) {
++					printf("HOUJI26 native mdev: buf_map_range error=%d bytes=%u\n",
++					    error, (unsigned)buf_count(bp));
++				}
++			}
++		}
 +		if (error) {
 +			buf_seterror(bp, error);
 +		} else {
@@ -248,12 +257,16 @@ index 1cc966a..cdfa4b4 100644
 +		}
 +		buf_biodone(bp);
 +		return;
-+	}
+ 	}
+-	/*
+-	 * make sure the buffer's data area is
+-	 * accessible
+-	 */
 +
- 	fvaddr = (mdev[devid].mdBase << 12) + blkoff;           /* Point to offset into ram disk */
- 
- 	if (buf_flags(bp) & B_READ) {                                   /* Is this a read? */
-@@ -319,9 +385,9 @@ mdevstrategy(struct buf *bp)
+ 	if (buf_map(bp, (caddr_t *)&vaddr)) {
+ 		panic("ramstrategy: buf_map failed");
+ 	}
+@@ -319,9 +399,9 @@
  				if (!pp) {                                                               /* Not found, what gives? */
  					panic("mdevstrategy: sink address %016llX not mapped", (addr64_t)((uintptr_t)vaddr));
  				}
@@ -265,7 +278,7 @@ index 1cc966a..cdfa4b4 100644
  
  				left = left - csize;                                    /* Calculate what is left */
  				vaddr = vaddr + csize;                                  /* Move to next sink address */
-@@ -342,7 +408,7 @@ mdevstrategy(struct buf *bp)
+@@ -342,7 +422,7 @@
  				if (!pp) {                                                               /* Not found, what gives? */
  					panic("mdevstrategy: source address %016llX not mapped", (addr64_t)((uintptr_t)vaddr));
  				}
@@ -274,7 +287,7 @@ index 1cc966a..cdfa4b4 100644
  
  				bcopy_phys(paddr, fvaddr, csize);               /* Move this on out */
  
-@@ -400,6 +466,23 @@ mdevioctl(dev_t dev, u_long cmd, caddr_t data, __unused int flag,
+@@ -400,6 +480,23 @@
  	memdev_info = (dk_memdev_info_t *) data;
  
  	switch (cmd) {
@@ -298,7 +311,7 @@ index 1cc966a..cdfa4b4 100644
  	case DKIOCGETMAXBLOCKCOUNTREAD:
  		*o = 32;
  		break;
-@@ -438,7 +521,7 @@ mdevioctl(dev_t dev, u_long cmd, caddr_t data, __unused int flag,
+@@ -438,7 +535,7 @@
  		if (!(mdev[devid].mdFlags & mdInited)) {
  			return ENXIO;
  		}
@@ -307,7 +320,7 @@ index 1cc966a..cdfa4b4 100644
  		break;
  
  	/*
-@@ -449,6 +532,9 @@ mdevioctl(dev_t dev, u_long cmd, caddr_t data, __unused int flag,
+@@ -449,6 +546,9 @@
  	 *   What is your size?
  	 */
  	case DKIOCGETMEMDEVINFO:
@@ -317,7 +330,7 @@ index 1cc966a..cdfa4b4 100644
  		if (!(mdev[devid].mdFlags & mdInited)) {
  			return ENXIO;
  		}
-@@ -532,7 +618,8 @@ mdevinit(__unused int the_cnt)
+@@ -532,7 +632,8 @@
  		}
  		ba++;                                                                                   /* Step past '.' */
  		ba = cvtnum(ba, lp, &size);                                             /* Try to convert it */
@@ -327,7 +340,7 @@ index 1cc966a..cdfa4b4 100644
  			continue;                                       /* Allow only non-zer page size multiples */
  		}
  		if (ba < lp) {                                                                   /* If we are not at end, check end character */
-@@ -541,7 +628,7 @@ mdevinit(__unused int the_cnt)
+@@ -541,7 +642,7 @@
  			}
  		}
  
@@ -336,7 +349,7 @@ index 1cc966a..cdfa4b4 100644
  	}
  
  #endif /* CONFIG_MEMDEV_INSECURE */
-@@ -635,11 +722,16 @@ cvtnum(char *pos, char *end, uint64_t *num)                     /* Convert to a
+@@ -635,11 +736,16 @@
  
  #endif /* CONFIG_MEMDEV_INSECURE */
  
@@ -355,7 +368,7 @@ index 1cc966a..cdfa4b4 100644
  	if (devid < 0) {
  		devid = -1;
  		for (i = 0; i < NB_MAX_MDEVICES; i++) {                                          /* Search all known memory devices */
-@@ -649,7 +741,7 @@ mdevadd(int devid, uint64_t base, unsigned int size, int phys)
+@@ -649,7 +755,7 @@
  				}
  				continue;                                                               /* Skip check */
  			}
@@ -364,7 +377,7 @@ index 1cc966a..cdfa4b4 100644
  				panic("mdevadd: attempt to add overlapping memory device at %016llX-%016llX", mdev[i].mdBase, mdev[i].mdBase + mdev[i].mdSize - 1);
  			}
  		}
-@@ -699,6 +791,8 @@ mdevadd(int devid, uint64_t base, unsigned int size, int phys)
+@@ -699,6 +805,8 @@
  		return -1;                                                                              /* Nope... */
  	}
  
@@ -373,7 +386,7 @@ index 1cc966a..cdfa4b4 100644
  	mdev[devid].mdBase = base;                                                      /* Set the base address of ram disk */
  	mdev[devid].mdSize = size;                                                      /* Set the length of the ram disk */
  	mdev[devid].mdSecsize = DEV_BSIZE;                                      /* Set starting block size */
-@@ -711,6 +805,25 @@ mdevadd(int devid, uint64_t base, unsigned int size, int phys)
+@@ -711,8 +819,27 @@
  	return mdev[devid].mdBDev;
  }
  
@@ -382,8 +395,8 @@ index 1cc966a..cdfa4b4 100644
 +{
 +	return mdevadd_internal(devid, base, size, phys, NULL, NULL);
 +}
-+
-+dev_t
+ 
+ dev_t
 +mdevadd_ops(int devid, uint64_t logical_bytes,
 +    const struct mdev_ops *ops, void *context)
 +{
@@ -396,10 +409,12 @@ index 1cc966a..cdfa4b4 100644
 +	           0, ops, context);
 +}
 +
- 
- dev_t
++
++dev_t
  mdevlookup(int devid)
-@@ -756,6 +869,8 @@ mdevremoveall(void)
+ {
+ 	if ((devid < 0) || (devid >= NB_MAX_MDEVICES)) {
+@@ -756,6 +883,8 @@
  		devfs_remove(mdev[i].mdbdevb);                  /* Remove the block device */
  		devfs_remove(mdev[i].mdcdevb);                  /* Remove the character device */
  
@@ -408,7 +423,7 @@ index 1cc966a..cdfa4b4 100644
  		mdev[i].mdBase = 0;                             /* Clear the mdev's storage */
  		mdev[i].mdSize = 0;
  		mdev[i].mdSecsize = 0;
-@@ -783,8 +898,13 @@ mdevgetrange(int devid, uint64_t *base, uint64_t *size)
+@@ -783,8 +912,13 @@
  		return -1;
  	}
  
@@ -797,12 +812,13 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  #include <IOKit/IOKitKeys.h>
  #include <IOKit/IOService.h>
  #include <IOKit/IOUserClient.h>
-@@ -39,6 +41,48 @@
+@@ -39,6 +41,49 @@
  #include <IOKit/IOBufferMemoryDescriptor.h>
  
  #include "MiniIOSurface.h"
 +#if HOUJI_IOS26
 +#include "arm/HoujiBacklight.inc"
++extern "C" void houji26_start_native_hid(void);
 +#include "arm/HoujiDisplayTiming.inc"
 +#include "arm/HoujiPresent26.h"
 +#include <mach/vm_param.h>
@@ -846,7 +862,17 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  
  extern "C" void redwood_tl(const char * format, ...) __printflike(1, 2);
  /* dada: the display controller showing the frames from buffers of its own (bsd/dev/hakios_dada_dpu.c, dadascan=1) */
-@@ -268,6 +312,9 @@
+@@ -172,6 +217,9 @@
+ static TUNABLE(uint32_t, gFilter, "fb_filter", 1);
+ static TUNABLE(uint32_t, gRefreshHz, "fb_hz", kFBRefreshHz);
+ static TUNABLE(uint32_t, gOnTheBeat, "fb_beat", 1);
++#if HOUJI_IOS26
++static TUNABLE(uint32_t, gHoujiFbStats, "houji_fb_stats", 0);
++#endif
+ /*
+  * Boot-arg fb_threads=N (1 to 8): so many processors scale a frame onto the panel together (see
+  * drawRows()). Three by default: a frame is in the panel's memory 3 ms after its turn instead of 9
+@@ -268,6 +316,9 @@
  	uint8_t         fSwap[SWAP_QUEUE][SWAP_SIZE];   /* the swaps on their way to the panel (fb_queue), from fSwapFirst on */
  	MiniIOSurface * fSwapSurfaces[SWAP_QUEUE][SWAP_LAYERS]; /* ... their surfaces, held from SwapEnd on: their maker may let go of them */
  	unsigned        fSwapFirst, fSwapsWaiting;
@@ -856,7 +882,15 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  	/*
  	 * ... and not whenever the GPU happens to be done, but on a beat of the refresh rate
  	 * (boot-arg fb_beat=0: at once): frames then follow each other at an even pace whatever
-@@ -567,6 +614,9 @@
+@@ -322,6 +373,7 @@
+ 	void present(const uint8_t * swap);
+ 	void show(const uint8_t * swap, MiniIOSurface ** surfaces);
+ 	void presenter(void);
++	uint64_t paceSwap(uint64_t ready);
+ 	static void presenterMain(void * self, wait_result_t result);
+ 	void reportFrameTimes(void);
+ 	void drawLayer(MiniIOSurface * s, const int32_t * src, const int32_t * dst);
+@@ -567,6 +619,9 @@
  		IOLog("MiniIOMobileFramebuffer: the display controller shows the frames from buffers of its own\n");
  	}
  	gFramebuffer = this;
@@ -866,9 +900,13 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  
  	if (gRecSeconds != 0) {
  		/* one piece of physical memory: the loader will send it over USB as it lies */
-@@ -600,6 +650,9 @@
+@@ -599,7 +654,13 @@
+ 	setProperty("RedwoodWaitsForGPU", kOSBooleanTrue);
  	publishModes();
  	setName("disp0");
++#if HOUJI_IOS26
++	houji26_start_native_hid();
++#endif
  	registerService();
 +#if HOUJI_IOS26
 +    __atomic_store_n(&houji26FBPublished, true, __ATOMIC_RELEASE);
@@ -876,7 +914,7 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  	return true;
  }
  
-@@ -995,6 +1048,9 @@
+@@ -995,6 +1056,9 @@
  	if (gTouchLat) {
  		redwood_tl("tl: s %u at %llu\n", swapWord(swap, SWAP_ID), micros(now));
  	}
@@ -886,7 +924,7 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  	IOLockLock(fSwapLock);
  	fStatSwapsLate += fSwapTime != 0 && now - fSwapTime > period && now - fSwapTime < pause;
  	fSwapTime = now;
-@@ -1010,12 +1066,18 @@
+@@ -1010,12 +1074,18 @@
  	unsigned slot = (fSwapFirst + fSwapsWaiting) % SWAP_QUEUE;
  
  	memcpy(fSwap[slot], swap, SWAP_SIZE);
@@ -905,7 +943,17 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  	IOLockWakeup(fSwapLock, fSwap, true);
  	IOLockUnlock(fSwapLock);
  }
-@@ -1039,8 +1101,23 @@
+@@ -1031,6 +1101,9 @@
+ {
+ 	static uint8_t swap[SWAP_SIZE];         /* (one thread) */
+ 	MiniIOSurface * surfaces[SWAP_LAYERS];
++#if HOUJI_IOS26
++	bool paced = false;
++#endif
+ 
+ 	for (;;) {
+ 		IOLockLock(fSwapLock);
+@@ -1039,8 +1112,30 @@
  		}
  		memcpy(swap, fSwap[fSwapFirst], SWAP_SIZE);
  		memcpy(surfaces, fSwapSurfaces[fSwapFirst], sizeof(surfaces));
@@ -914,6 +962,12 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
 +#endif
  		IOLockUnlock(fSwapLock);
 +#if HOUJI_IOS26
++		/* Wait once for this queued frame before acquiring the issuer.
++		 * The lease rechecks both producer and current tail afterwards. */
++		if (!paced) {
++			paceSwap(mach_absolute_time());
++			paced = true;
++		}
 +        bool completed = false;
 +        {
 +            HoujiPresentLease26 lease(producerFence);
@@ -923,13 +977,14 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
 +            if (readable) { show(swap, surfaces); completed = true; }
 +        } /* Drop the issuer gate before sleeping, surface destruction or allocator work. */
 +        if (!completed) { IOSleep(1); continue; }
++		paced = false;
 +#else
  		show(swap, surfaces);
 +#endif
  		for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
  			if (surfaces[layer] != NULL) {
  				MiniIOSurfaceDrop(surfaces[layer]);
-@@ -1106,6 +1183,7 @@
+@@ -1106,6 +1201,7 @@
  	 * (still frames are the same picture). A surface whose last submission has not changed since it was last shown is waited for, up
  	 * to SWAP_NEW_MS, to be named by a newer one; then for the GPU, as before.
  	 */
@@ -937,15 +992,55 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  	for (unsigned layer = 0; layer < SWAP_LAYERS; layer++) {
  		MiniIOSurface * s = surfaces[layer];
  		unsigned slot;
-@@ -1139,6 +1217,7 @@
+@@ -1139,32 +1235,12 @@
  			    swapWord(swap, SWAP_ID), swapWord(swap, SWAP_SURFACE(layer)), SWAP_GPU_MS);
  		}
  	}
 +#endif
  	fStatWaiting += mach_absolute_time() - began;
  	began = ready = mach_absolute_time();
- 	if (gOnTheBeat && !fScan) {        /* (scanning out, the display's own refresh paces the frames) */
-@@ -1276,6 +1355,10 @@
+-	if (gOnTheBeat && !fScan) {        /* (scanning out, the display's own refresh paces the frames) */
+-		uint64_t period, aim, next;
+-
+-		nanoseconds_to_absolutetime(NSEC_PER_SEC / refreshHz(), &period);
+-		aim = period * 3 / 8;
+-		next = fReady;
+-		fReady = began;
+-		if (fBeat == 0 || began - next > period * 3 / 2) {
+-			fBeat = began;
+-		} else {
+-			for (next = fBeat + period; next < began; next += period) {
+-			}
+-			if (next - began > aim) {
+-				next -= (next - began - aim) / 8;
+-			} else {
+-				next += (aim - (next - began)) / 8;
+-			}
+-			clock_delay_until(next);
+-			fBeat = next;
+-			fStatOnBeat++;
+-			fStatBeatWait += mach_absolute_time() - began;
+-			began = mach_absolute_time();
+-		}
+-	}
++#if !HOUJI_IOS26
++	began = paceSwap(began);
++#endif
+ 	shown = began;
+ 	/* its turn has come: the swap after it may be handed over */
+ 	IOLockLock(fSwapLock);
+@@ -1264,6 +1340,10 @@
+ 				/* the first picture: the kernel's text console must stop drawing over it */
+ 				fGraphics = true;
+ 				PE_initialize_console(NULL, kPEGraphicsMode);
++#if HOUJI_IOS26
++				/* Relinquish the text renderer before the first compositor frame. */
++				PE_initialize_console(NULL, kPEReleaseScreen);
++#endif
+ 			}
+ 			drawLayer(s, src, dst);
+ 			if (layer == 0) {
+@@ -1276,6 +1356,10 @@
  		record(recorded);
  	}
  	fSwapsShown++;
@@ -956,7 +1051,57 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  	if (gTouchLat) {
  		redwood_tl("tl: v %u ready %llu shown %llu done %llu\n", swapWord(swap, SWAP_ID), micros(ready), micros(shown),
  		    micros(drawn));
-@@ -1420,6 +1503,9 @@
+@@ -1294,7 +1378,11 @@
+ 		fStatSince = began;
+ 	}
+ 	absolutetime_to_nanoseconds(mach_absolute_time() - fStatSince, &nanos);
+-	if (nanos >= 5 * NSEC_PER_SEC) {
++	if (nanos >= 5 * NSEC_PER_SEC
++#if HOUJI_IOS26
++	    && gHoujiFbStats
++#endif
++	    ) {
+ 		uint64_t drawing, waiting, beat;
+ 		unsigned different;
+ 
+@@ -1369,6 +1457,36 @@
+ 	IOLockUnlock(fLock);
+ }
+ 
++uint64_t
++IOMobileFramebuffer::paceSwap(uint64_t began)
++{
++	if (gOnTheBeat && !fScan) {        /* (scanning out, the display's own refresh paces the frames) */
++		uint64_t period, aim, next;
++
++		nanoseconds_to_absolutetime(NSEC_PER_SEC / refreshHz(), &period);
++		aim = period * 3 / 8;
++		next = fReady;
++		fReady = began;
++		if (fBeat == 0 || began - next > period * 3 / 2) {
++			fBeat = began;
++		} else {
++			for (next = fBeat + period; next < began; next += period) {
++			}
++			if (next - began > aim) {
++				next -= (next - began - aim) / 8;
++			} else {
++				next += (aim - (next - began)) / 8;
++			}
++			clock_delay_until(next);
++			fBeat = next;
++			fStatOnBeat++;
++			fStatBeatWait += mach_absolute_time() - began;
++			began = mach_absolute_time();
++		}
++	}
++	return began;
++}
++
+ /* The run is about to end (redwood_adreno_stop): the frame on screen back in the panel's memory, dada's display on it. */
+ extern "C" void
+ MiniIOMobileFramebufferEnd(void)
+@@ -1420,6 +1538,9 @@
  bool
  IOMobileFramebufferUserClient::initWithTask(task_t owningTask, void * securityID, UInt32 type, OSDictionary * properties)
  {
@@ -966,7 +1111,7 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  	if (!IOUserClient::initWithTask(owningTask, securityID, type, properties)) {
  		return false;
  	}
-@@ -1441,7 +1527,11 @@
+@@ -1441,7 +1562,11 @@
  	}
  	fLock = IOLockAlloc();
  	fVSyncCall = thread_call_allocate(&IOMobileFramebufferUserClient::vsyncFired, this);
@@ -979,7 +1124,7 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  }
  
  IOReturn
-@@ -1568,6 +1658,9 @@
+@@ -1568,6 +1693,9 @@
  		char procname[32] = "?";
  
  		gFBCalls[selector]++;
@@ -989,7 +1134,7 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  		proc_selfname(procname, sizeof(procname));
  		IOLog("MiniIOMobileFramebuffer: %s[%d] selector %u (scalars %u in [0x%llx 0x%llx 0x%llx 0x%llx], %u out; "
  		    "structure %u in, %u out)\n", procname, proc_selfpid(), selector, args->scalarInputCount,
-@@ -1740,6 +1833,19 @@
+@@ -1740,6 +1868,19 @@
  		IOLog("MiniIOMobileFramebuffer: no /arm-io in the device tree\n");
  		return;
  	}
@@ -1009,7 +1154,7 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  	node = OSTypeAlloc(IORegistryEntry);
  	props = OSDictionary::withCapacity(4);
  	if (node != NULL && props != NULL) {
-@@ -1754,7 +1860,13 @@
+@@ -1754,7 +1895,13 @@
  		OSSafeReleaseNULL(data);
  		if (node->init(props)) {
  			node->setName("disp0");
@@ -1023,22 +1168,23 @@ diff --git a/iokit/Kernel/MiniIOMobileFramebuffer.cpp b/iokit/Kernel/MiniIOMobil
  		}
  	}
  	OSSafeReleaseNULL(props);
-@@ -1779,13 +1891,7 @@
+@@ -1779,14 +1926,8 @@
  
  static bool gAcceleratorTakesProperties;        /* boot-arg metal=1 */
  
 -class IOAcceleratorES : public IOService
 -{
 -	OSDeclareDefaultStructors(IOAcceleratorES);
--
++#include "HoujiIOAccelerator26.h"
+ 
 -public:
 -	virtual IOReturn setProperties(OSObject * properties) APPLE_KEXT_OVERRIDE;
 -};
-+#include "HoujiIOAccelerator26.h"
- 
+-
  OSDefineMetaClassAndStructors(IOAcceleratorES, IOService);
  
-@@ -1930,10 +2036,37 @@
+ /*
+@@ -1930,10 +2071,37 @@
  		return;
  	}
  	if (fb->start(provider)) {
@@ -1103,10 +1249,9 @@ index dbb3f05..750cf8f 100644
  		dchar = xchar = rdBootVar[2];                                                   /* Get the actual device */
  		if ((xchar >= '0') && (xchar <= '9')) {
 diff --git a/iokit/conf/files b/iokit/conf/files
-index 197834c..2f83311 100644
 --- a/iokit/conf/files
 +++ b/iokit/conf/files
-@@ -168,3 +168,45 @@ iokit/bsddev/skywalk/IOSkywalkSupport.cpp		optional iokitcpp skywalk
+@@ -168,3 +168,49 @@
  
  # Exclaves
  iokit/Exclaves/Exclaves.cpp			optional iokitcpp
@@ -1138,6 +1283,10 @@ index 197834c..2f83311 100644
 +iokit/Kernel/houji-ufs-root/Adreno740/HoujiNativeAccelerator.cpp optional iokitcpp
 +
 +iokit/Kernel/arm/HoujiPlatform26.cpp optional iokitcpp
++iokit/Kernel/arm/hid/SweetHID.cpp optional iokitcpp
++iokit/Kernel/arm/hid/IOHIDEvent.cpp optional iokitcpp
++iokit/Kernel/arm/hid/IOHIDEventServiceQueue.cpp optional iokitcpp
++iokit/Kernel/arm/hid/IOHIDEventServiceUserClient.cpp optional iokitcpp
 +iokit/Kernel/houji-ufs-root/battery/QcomSmem.c                   optional iokit
 +iokit/Kernel/houji-ufs-root/battery/QcomSmp2p.c                  optional iokit
 +iokit/Kernel/houji-ufs-root/battery/FatVolume.c                  optional iokit
@@ -1183,10 +1332,50 @@ index ec4c59b..43ba969 100644
  endif
  
 diff --git a/osfmk/arm64/gic_v3_irq.c b/osfmk/arm64/gic_v3_irq.c
-index d4d75ad..ce964b5 100644
 --- a/osfmk/arm64/gic_v3_irq.c
 +++ b/osfmk/arm64/gic_v3_irq.c
-@@ -195,8 +195,11 @@ gic_spi_handle(uint32_t intid)
+@@ -8,9 +8,8 @@
+  *
+  *   - the CPU interface is driven through the ICC_*_EL1 system registers
+  *   - the EL1 virtual timer PPI is routed to the kernel's rtclock
+- *   - with more than one processor (psci_smp.c), two software-generated
+- *     interrupts carry the kernel's signals between them: cpu_signal() and
+- *     the order to stop when the system goes back to the boot loader
++ *   - with more than one processor (psci_smp.c), software-generated interrupts
++ *     carry cpu_signal() and the boot loader's request to stop
+  *   - a shared peripheral interrupt (SPI, numbers 32 to 1019) is a driver's once it
+  *     is attached (gic_v3_spi_attach()): configured, routed to the processor that
+  *     attaches it, enabled, and its handler called in interrupt context for each
+@@ -71,8 +70,15 @@
+ #define GICR_IPRIORITYR(n)      (GICR_SGI_BASE + 0x0400 + (n))
+ #define GICR_IGRPMODR0          (GICR_SGI_BASE + 0x0d00)
+ 
++#if HOUJI_IOS26
++#define GIC_SGI_SIGNAL          1   /* houji iOS16 cross-CPU signal */
++extern void houji26_smp_screen(const char *, unsigned);
++#define GIC_BOOT_STAGE(stage, cpu) houji26_smp_screen(stage, (unsigned)(cpu))
++#else
+ #define GIC_SGI_SIGNAL          0           /* cpu_signal(): another processor wants this one's attention */
+ #define GIC_SGI_STOP            1           /* psci_smp_stop_here(): the system is going back to the boot loader */
++#define GIC_BOOT_STAGE(stage, cpu) ((void)0)
++#endif
+ #define GIC_INTID_VTIMER        27          /* EL1 virtual timer PPI */
+ #define GIC_INTID_SPI_MIN       32
+ #define GIC_INTID_SPURIOUS_MIN  1020
+@@ -169,7 +175,12 @@
+ void
+ gic_v3_irq_signal_stop(uint32_t phys_id)
+ {
++#if HOUJI_IOS26
++	/* PSCI publishes the stop request before sending the shared SGI. */
++	gic_v3_irq_signal(phys_id);
++#else
+ 	gic_send_sgi(phys_id, GIC_SGI_STOP);
++#endif
+ }
+ 
+ /* An SPI that a driver has attached: its handler called. false: nobody has it. */
+@@ -195,8 +206,11 @@
  static void
  gic_distributor_settle(void)
  {
@@ -1199,7 +1388,40 @@ index d4d75ad..ce964b5 100644
  	}
  }
  
-@@ -298,6 +301,13 @@ gic_v3_spi_count(uint32_t intid)
+@@ -223,10 +237,9 @@
+  * before the interrupt is ended; for a level-triggered one it has to quiet the source or mask the
+  * interrupt (gic_v3_spi_mask()). Thread context.
+  */
+-kern_return_t
+-gic_v3_spi_attach(uint32_t intid, bool edge, void (*handler)(void *context, uint32_t intid), void *context)
+-{
+-	uint64_t mpidr = __builtin_arm_rsr64("MPIDR_EL1");
++static kern_return_t
++gic_spi_attach_routed(uint32_t intid, bool edge, void (*handler)(void *, uint32_t), void *context, uint64_t route)
++{
+ 	struct gic_spi *slot = NULL;
+ 	uint32_t config;
+ 
+@@ -262,10 +275,17 @@
+ 	config = gic_read32(gicd_base + GICD_ICFGR(intid / 16)) & ~(3u << (intid % 16 * 2));
+ 	gic_write32(gicd_base + GICD_ICFGR(intid / 16), config | (edge ? 2u : 0u) << (intid % 16 * 2));
+ 	/* GICD_IROUTER: Aff3 in [39:32], Aff2.Aff1.Aff0 in [23:0]; bit 31 (any processor) clear */
+-	*(volatile uint64_t *)(gicd_base + GICD_IROUTER(intid)) = (mpidr & 0xff00000000ull) | (mpidr & 0xffffff);
++	*(volatile uint64_t *)(gicd_base + GICD_IROUTER(intid)) = route;
+ 	gic_distributor_settle();
+ 	gic_v3_spi_unmask(intid);
+ 	return KERN_SUCCESS;
++}
++
++kern_return_t
++gic_v3_spi_attach(uint32_t intid, bool edge, void (*handler)(void *context, uint32_t intid), void *context)
++{
++	uint64_t route = __builtin_arm_rsr64("MPIDR_EL1") & 0xff00ffffffULL;
++	return gic_spi_attach_routed(intid, edge, handler, context, route);
+ }
+ 
+ /* ... and gives it back: disabled, nothing pending, and no handler of it running when this returns. */
+@@ -298,6 +318,13 @@
  	return 0;
  }
  
@@ -1213,7 +1435,7 @@ index d4d75ad..ce964b5 100644
  static void
  gic_irq_handler(__unused void *target, __unused void *refCon, __unused void *nub, __unused int source)
  {
-@@ -313,10 +323,12 @@ gic_irq_handler(__unused void *target, __unused void *refCon, __unused void *nub
+@@ -313,14 +340,22 @@
  		gic_active_iar[cpu] = iar | GIC_IAR_TAKEN;
  
  		if (intid == GIC_INTID_VTIMER) {
@@ -1223,12 +1445,30 @@ index d4d75ad..ce964b5 100644
  			rtclock_intr(TRUE);
  		} else if (intid == GIC_SGI_SIGNAL) {
 +            __atomic_fetch_add(&houji26_ipi_irqs[cpu], 1ULL, __ATOMIC_RELAXED);
++#if HOUJI_IOS26
++			/* The existing PSCI stop state distinguishes a stop from an ordinary IPI. */
++			psci_smp_stop_here();
++#endif
  			cpu_signal_handler();
++#if !HOUJI_IOS26
  		} else if (intid == GIC_SGI_STOP) {
  			/* comes back only if nobody has in fact asked for that */
-@@ -463,8 +475,11 @@ gic_v3_irq_cpu_init(void)
+ 			psci_smp_stop_here();
++#endif
+ 		} else if (intid >= GIC_INTID_SPI_MIN && gic_spi_handle(intid)) {
+ 			/* a driver's */
+ 		} else {
+@@ -458,13 +493,19 @@
+ 	__builtin_arm_wsr64("ICC_SRE_EL1", __builtin_arm_rsr64("ICC_SRE_EL1") | 1);
+ 	__builtin_arm_isb(ISB_SY);
+ 
++	GIC_BOOT_STAGE("GICR find frame", cpu);
+ 	gicr = gicr_cpu_base[cpu] = gic_find_redistributor();
++	GIC_BOOT_STAGE("GICR read WAKER", cpu);
+ 
  	uint32_t waker = gic_read32(gicr + GICR_WAKER);
  	if (waker & (GICR_WAKER_PROCSLEEP | GICR_WAKER_CHILDASLEEP)) {
++		GIC_BOOT_STAGE("GICR wake", cpu);
  		gic_write32(gicr + GICR_WAKER, waker & ~GICR_WAKER_PROCSLEEP);
 +		uint64_t start = __builtin_arm_rsr64("CNTPCT_EL0");
 +		uint64_t ticks = __builtin_arm_rsr64("CNTFRQ_EL0");
@@ -1239,25 +1479,44 @@ index d4d75ad..ce964b5 100644
  		}
  	}
  
-@@ -484,8 +499,16 @@ gic_v3_irq_cpu_init(void)
+@@ -474,28 +515,44 @@
+ 	 * since) may still have it marked active, and would then never see another.
+ 	 */
+ 	if (ml_get_cpu_count() > 1) {
++#if HOUJI_IOS26
++		uint32_t sgis = 1u << GIC_SGI_SIGNAL;
++#else
+ 		uint32_t sgis = (1u << GIC_SGI_SIGNAL) | (1u << GIC_SGI_STOP);
+ 
+ 		gic_write32(gicr + GICR_ICACTIVER0, sgis);
+ 		gic_write32(gicr + GICR_ICPENDR0, sgis);        /* ... or one that it never took */
+ 		*(volatile uint8_t *)(gicr + GICR_IPRIORITYR(GIC_SGI_SIGNAL)) = GIC_PRIORITY_DEFAULT;
+ 		*(volatile uint8_t *)(gicr + GICR_IPRIORITYR(GIC_SGI_STOP)) = GIC_PRIORITY_DEFAULT;
++#endif
+ 		mine |= sgis;
  	}
  
  	/* Virtual timer PPI (and those): Group 1 (IRQ), default priority, enabled */
--	gic_write32(gicr + GICR_IGROUPR0, gic_read32(gicr + GICR_IGROUPR0) | mine);
-+	#if HOUJI_IOS26
-+    /* r40: reading the redistributor SGI group registers aborts on houji.
-+     * Retain the qualified write-only Group1 initialization from iOS16. */
-+    gic_write32(gicr + GICR_IGROUPR0, 0xffffffffU);
-+    for (unsigned irq = 0; irq < 32; ++irq)
-+        *(volatile uint8_t *)(gicr + GICR_IPRIORITYR(irq)) = GIC_PRIORITY_DEFAULT;
++#if HOUJI_IOS26
++	/* Match the houji iOS16 cold boot: write Group1 and word priorities
++	 * before enabling the timer and SGIs. Do not touch active/pending
++	 * SGIs before their group is established. */
++	GIC_BOOT_STAGE("GICR write group", cpu);
++	gic_write32(gicr + GICR_IGROUPR0, 0xffffffffU);
++	GIC_BOOT_STAGE("GICR write priority", cpu);
++	for (unsigned irq = 0; irq < 32; irq += 4) {
++		gic_write32(gicr + GICR_IPRIORITYR(irq), 0xa0a0a0a0U);
++	}
 +#else
-+    gic_write32(gicr + GICR_IGROUPR0, gic_read32(gicr + GICR_IGROUPR0) | mine);
+ 	gic_write32(gicr + GICR_IGROUPR0, gic_read32(gicr + GICR_IGROUPR0) | mine);
  	gic_write32(gicr + GICR_IGRPMODR0, gic_read32(gicr + GICR_IGRPMODR0) & ~mine);
-+#endif
  	*(volatile uint8_t *)(gicr + GICR_IPRIORITYR(GIC_INTID_VTIMER)) = GIC_PRIORITY_DEFAULT;
++#endif
++	GIC_BOOT_STAGE("GICR enable", cpu);
  	gic_write32(gicr + GICR_ISENABLER0, mine);
  
-@@ -493,9 +516,7 @@ gic_v3_irq_cpu_init(void)
++	GIC_BOOT_STAGE("GICD Group 1", cpu);
+ 	/* Distributor: affinity routing, Group 1 enabled (normally already so) */
  	uint32_t ctlr = gic_read32(gicd_base + GICD_CTLR);
  	if ((ctlr & (GICD_CTLR_ENABLE_G1NS | GICD_CTLR_ARE_NS)) != (GICD_CTLR_ENABLE_G1NS | GICD_CTLR_ARE_NS)) {
  		gic_write32(gicd_base + GICD_CTLR, ctlr | GICD_CTLR_ENABLE_G1NS | GICD_CTLR_ARE_NS);
@@ -1268,17 +1527,27 @@ index d4d75ad..ce964b5 100644
  	}
  
  	/*
-@@ -504,6 +525,9 @@ gic_v3_irq_cpu_init(void)
+@@ -504,15 +561,27 @@
  	 * kernel that left in the middle of an interrupt without ending it would leave this one
  	 * waiting for an end that never comes.
  	 */
++	GIC_BOOT_STAGE("GIC CPU interface", cpu);
 +#if HOUJI_IOS26
-+    __builtin_arm_wsr64("ICC_CTLR_EL1", __builtin_arm_rsr64("ICC_CTLR_EL1") & ~2ULL);
++	__builtin_arm_wsr64("ICC_CTLR_EL1", __builtin_arm_rsr64("ICC_CTLR_EL1") & ~2ULL);
 +#endif
++	GIC_BOOT_STAGE("GIC clear active priority", cpu);
  	__builtin_arm_wsr64("ICC_AP1R0_EL1", 0);
++	GIC_BOOT_STAGE("GIC enable CPU interface", cpu);
  	__builtin_arm_wsr64("ICC_PMR_EL1", 0xff);
  	__builtin_arm_wsr64("ICC_BPR1_EL1", 0);
-@@ -516,3 +540,7 @@ gic_v3_irq_cpu_init(void)
+ 	__builtin_arm_wsr64("ICC_IGRPEN1_EL1", 1);
+ 	__builtin_arm_isb(ISB_SY);
+ 
++	GIC_BOOT_STAGE("GIC install handler", cpu);
+ 	ml_install_interrupt_handler(NULL, 0, NULL, gic_irq_handler, NULL);
++	GIC_BOOT_STAGE("GIC online", cpu);
+ 	kprintf("gic: v3, distributor %p, cpu %d's redistributor %p, virtual timer on PPI %d\n",
+ 	    (void *)gicd_base, cpu, (void *)gicr, GIC_INTID_VTIMER);
  }
  
  #endif /* GENERIC_GIC_V3_IRQ */
@@ -1287,10 +1556,105 @@ index d4d75ad..ce964b5 100644
 +#include "../../pexpert/arm/HoujiSpi26.inc"
 +#endif
 diff --git a/osfmk/arm64/loader_return.c b/osfmk/arm64/loader_return.c
-index b879367..b16c057 100644
 --- a/osfmk/arm64/loader_return.c
 +++ b/osfmk/arm64/loader_return.c
-@@ -509,6 +509,10 @@ loader_log_append_msgbuf(void)
+@@ -249,6 +249,95 @@
+ 	__builtin_arm_wsr64("DAIF", daif);
+ }
+ 
++#if HOUJI_IOS26 && (DEVELOPMENT || DEBUG)
++/* Export selected wallpaper setup messages already retained by the reference. */
++unsigned houji26_wallpaper_snapshot(char *out, unsigned capacity);
++unsigned
++houji26_wallpaper_snapshot(char *out, unsigned capacity)
++{
++	static const char prefix[] = "redwood26: ";
++	static const char *const phases[] = {
++		"loaded into SpringBoard (pid ",
++		"loaded into PosterBoard (pid ",
++		"SpringBoard: no PRSService",
++		"SpringBoard: PosterBoard: prewarm asked",
++		"SpringBoard: PosterBoard: prewarm answered",
++		"SpringBoard: the default wallpaper: asking",
++		"SpringBoard: the default wallpaper asked for",
++		"SpringBoard: no +[SBSUIWallpaperService",
++		"PosterBoard: no data store after 30 s",
++		"PosterBoard: build data store",
++		"PosterBoard: role PRPosterRoleLockScreen:",
++		"PosterBoard: role PRPosterRoleHomeScreen:",
++		"PosterBoard: the incoming poster:",
++		"PosterBoard: error ",
++		"PosterBoard: general error ",
++		"PosterBoard: known extension ",
++	};
++	struct { const char *text; size_t length; } lines[sizeof(phases) / sizeof(phases[0])] = {};
++	static const char header[] = "HOUJI26 WALLPAPER: retained setup messages\n";
++	int enabled = 0;
++	if (capacity < sizeof(header) ||
++	    !PE_parse_boot_argn("houji_wallpaper_diag", &enabled, sizeof(enabled)) || enabled != 1) {
++		return 0;
++	}
++
++	/* Read the immutable prefix length under the existing writer lock.
++	 * Restore the local interrupt state before scanning the prefix. */
++	uint64_t daif = __builtin_arm_rsr64("DAIF");
++	__builtin_arm_wsr("DAIFSet", DAIFSC_IRQF | DAIFSC_FIQF);
++	bool locked = false;
++	for (unsigned attempt = 0; !locked && attempt < 256; attempt++) {
++		locked = os_atomic_cmpxchg(&loader_log_lock, 0, 1, acquire);
++	}
++	uint32_t end = 0;
++	if (locked) {
++		end = MIN(loader_keep_len, sizeof(loader_keep));
++		os_atomic_store(&loader_log_lock, 0, release);
++	}
++	__builtin_arm_wsr64("DAIF", daif);
++	if (!locked) {
++		return 0;
++	}
++
++	for (const char *p = loader_keep; p < loader_keep + end;) {
++		const char *eol = p;
++		while (eol < loader_keep + end && *eol != '\n') {
++			eol++;
++		}
++		if (eol == loader_keep + end) {
++			break;
++		}
++		size_t length = (size_t)(eol - p);
++		if (length >= sizeof(prefix) - 1 && memcmp(p, prefix, sizeof(prefix) - 1) == 0) {
++			const char *message = p + sizeof(prefix) - 1;
++			for (unsigned phase = 0; phase < sizeof(phases) / sizeof(phases[0]); phase++) {
++				size_t n = strlen(phases[phase]);
++				if ((size_t)(eol - message) >= n && memcmp(message, phases[phase], n) == 0) {
++					lines[phase].text = p;
++					lines[phase].length = MIN(length, 160U);
++					break;
++				}
++			}
++		}
++		p = eol + 1;
++	}
++
++	unsigned used = sizeof(header) - 1;
++	memcpy(out, header, used);
++	for (unsigned phase = 0; phase < sizeof(phases) / sizeof(phases[0]); phase++) {
++		size_t n = lines[phase].length;
++		if (n == 0 || n + 1 > capacity - used) {
++			continue;
++		}
++		memcpy(out + used, lines[phase].text, n);
++		out[used + n] = '\n';
++		used += (unsigned)n + 1;
++	}
++	return used;
++}
++#endif /* HOUJI_IOS26 && (DEVELOPMENT || DEBUG) */
++
+ /*
+  * A whole line at once, under the lock: lines written from several processors at the same time
+  * (tools/latency.py's "tl:" lines, a frame's on one and a touch's on another) are not mixed up.
+@@ -509,6 +598,10 @@
  void
  loader_return(void)
  {
@@ -1302,10 +1666,9 @@ index b879367..b16c057 100644
  #if defined(GENERIC_PSCI_SMP)
  	/*
 diff --git a/osfmk/arm64/psci_smp.c b/osfmk/arm64/psci_smp.c
-index 4ddd78e..709aa52 100644
 --- a/osfmk/arm64/psci_smp.c
 +++ b/osfmk/arm64/psci_smp.c
-@@ -96,6 +96,14 @@ struct psci_smp_start_fault {
+@@ -96,6 +96,14 @@
  _Static_assert(sizeof(struct psci_smp_start_fault) == 64, "one cache line");
  
  static uint32_t psci_smp_cpu_stage[MAX_CPUS];   /* PSCI_SMP_CPU_*, by cpu number */
@@ -1320,6 +1683,36 @@ index 4ddd78e..709aa52 100644
  static uint32_t psci_smp_started;               /* a bit per core that CPU_ON was granted for */
  
  static int      psci_smp_stop_owner = -1;       /* the processor that began the return to the boot loader */
+@@ -233,6 +241,10 @@
+ 		    phys_id, psci_smp_loader_entry ? psci_smp_loader_entry : entry, entry);
+ 		loader_log_line(line);
+ 	}
++#if HOUJI_IOS26
++	extern void houji26_smp_screen(const char *, unsigned);
++	houji26_smp_screen("PSCI CPU_ON", (unsigned)cpu);
++#endif
+ 	if (psci_smp_loader_entry != 0) {
+ 		status = psci_call(PSCI_CPU_ON, phys_id, psci_smp_loader_entry, entry);
+ 	} else {
+@@ -250,6 +262,9 @@
+ 	do {
+ 		stage = os_atomic_load(&psci_smp_cpu_stage[cpu], acquire);
+ 		if (stage >= PSCI_SMP_CPU_RUNNING) {
++#if HOUJI_IOS26
++			houji26_smp_screen("PSCI CPU online", (unsigned)cpu);
++#endif
+ 			return KERN_SUCCESS;
+ 		}
+ 		/* memory, not this processor's copy of it */
+@@ -417,7 +432,7 @@
+ void
+ psci_smp_stop_here(void)
+ {
+-	if (psci_smp_started == 0) {
++	if (os_atomic_load(&psci_smp_started, relaxed) == 0) {
+ 		return;
+ 	}
+ 	if (cpu_number() != psci_smp_boot_cpu()) {
 diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
 index 49f7f11..c5f60f8 100644
 --- a/osfmk/conf/files.arm64
@@ -1902,3 +2295,38 @@ diff --git a/osfmk/arm64/user_exception_trace.c b/osfmk/arm64/user_exception_tra
  	if (!user_exception_trace_enabled || thread != current_thread()) {
  		return;
  	}
+diff --git a/bsd/dev/redwood_input.c b/bsd/dev/redwood_input.c
+--- a/bsd/dev/redwood_input.c
++++ b/bsd/dev/redwood_input.c
+@@ -147,6 +147,17 @@
+ static int
+ touch_open(__unused dev_t dev, __unused int flags, __unused int devtype, __unused struct proc *p)
+ {
++#if HOUJI_IOS26
++	extern bool houji26_native_hid_ready(void);
++	if (houji26_native_hid_ready()) {
++		char name[20] = {};
++		proc_selfname(name, sizeof(name));
++		if (strcmp(name, "backboardd") == 0) {
++			/* The injected reader exits before creating a second digitizer. */
++			return ENXIO;
++		}
++	}
++#endif
+ 	return 0;
+ }
+ 
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -649,6 +649,10 @@
+ 	loader_checkpoint(52);   /* hakios: about to PE_create_console */
+ 	PE_create_console();
+ 	loader_checkpoint(20);
++#if HOUJI_IOS26
++	extern void houji26_smp_screen(const char *, unsigned);
++	houji26_smp_screen("console mapped", 0);
++#endif
+ 
+ 	/* setup console output */
+ 	PE_init_printf(FALSE);

@@ -107,6 +107,64 @@ with tempfile.TemporaryDirectory(prefix='houji-issuer-trace-') as directory:
                     '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
                     '-I', str(GPU), str(cpp), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=60)
+
+    # Apply only the two iOS26 hunks to exercise the actual quiet watchdog.
+    reused = ROOT / 'kernel/ios26/patches/reused-drivers.patch'
+    base = Path('iokit/Kernel/houji-ufs-root')
+    publish = base / 'Adreno740/NativeAdrenoPublish.cpp'
+    live = base / 'HoujiGpuNativeLive.inc'
+    for name in (publish, live):
+        target = path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / 'kernel/overlay' / name).read_bytes())
+    subprocess.run(['git', 'apply', f'--include={publish}', f'--include={live}', str(reused)],
+                   cwd=path, check=True)
+    upgraded = (path / publish).read_text()
+    owner_helpers = upgraded[upgraded.index('static NativeAdrenoIssuerTrace nativeAdrenoIssuerTrace;'):
+                             upgraded.index('static uint64_t gHoujiPresentSync[14];')]
+    monitor = (path / live).read_text()
+    begin = monitor.index('   const uint64_t owner=native_adreno_provider_gate_owner();')
+    end = monitor.index('  }else {busy_since=0;', begin)
+    watch = r'''
+static uint64_t watchTime, busy_owner, busy_since;
+static unsigned watchdogPanics;
+static uint64_t houjiSubmitNow(void*) { return watchTime; }
+static uint64_t native_adreno_provider_progress_token() { return (1U << 16) | 6; }
+static void panic(const char*, unsigned site, unsigned selector, unsigned inflight) {
+ assert(site == 22 && selector == 6 && inflight == 1);
+ ++watchdogPanics;
+}
+static void observeBusy(uint64_t timestamp) {
+ watchTime = timestamp;
+''' + monitor[begin:end] + r'''
+}
+static void checkWatchdog() {
+ for (unsigned i = 1; i < 5; ++i) {
+  nativeAdrenoIssuerLock(22);
+  observeBusy(i * 11000000ULL);
+  nativeAdrenoIssuerUnlock();
+  assert(uint32_t(native_adreno_provider_gate_owner()) == 0 && watchdogPanics == 0);
+ }
+ nativeAdrenoIssuerLock(22);
+ observeBusy(55000000);
+ observeBusy(64999999);
+ assert(watchdogPanics == 0);
+ observeBusy(65000001);
+ assert(watchdogPanics == 1);
+ nativeAdrenoIssuerUnlock();
+ observeBusy(66000000);
+ assert(busy_since == 0);
+}
+'''
+    upgraded_unit = unit.replace(helpers, owner_helpers, 1).replace('int main() {', watch + 'int main() {', 1)
+    upgraded_unit = upgraded_unit.replace(' assert(locks==unlocks);',
+        ' assert(locks==unlocks);\n nativeAdrenoIssuerTrace.enabled=false;\n checkWatchdog();', 1)
+    cpp.write_text(upgraded_unit)
+    subprocess.run(['clang++', '-std=c++17', '-O1', '-g', '-fsanitize=address,undefined',
+                    '-I', str(GPU), str(cpp), '-o', str(binary)], check=True)
+    subprocess.run([str(binary)], check=True, timeout=60)
+    print('PASS: iOS26 gate watchdog distinguishes successive acquisitions from one held owner')
+
 spec = importlib.util.spec_from_file_location('issuer', ROOT/'tools/analyze-gpu-issuer.py')
 parser = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(parser)

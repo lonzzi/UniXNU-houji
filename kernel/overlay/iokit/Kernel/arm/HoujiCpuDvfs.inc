@@ -146,7 +146,9 @@ static void worker(void*,wait_result_t){
    }
    sumUs=boostUs=frameUs=maxTickUs=0;for(auto&c:coreUs)c=0;
    for(unsigned id=0;id<domains;id++){requestUs[id]=0;stateMin[id]=UINT32_MAX;stateMax[id]=throttled[id]=0;changes[id]=d[id].changes;}
+#if !HOUJI_IOS26
    for(unsigned id=0;id<domains;id++){auto&w=d[id];IOLog("HOUJI CPU DVFS: d=%u req-kHz=%u read-index=%u state-kHz=%u load-permille=%u changes=%u bad=%u touch-boost=%u; domain-state hardware sample, not cycle measurement\n",id,w.khz[w.cur],w.readback,(w.state&255)*19200,w.load,w.changes,w.bad,boosted);}
+#endif
   }
  }
 }

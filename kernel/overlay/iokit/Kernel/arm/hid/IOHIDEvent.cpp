@@ -33,6 +33,9 @@
 #include "IOHIDEventData.h"
 #include "IOHIDUsageTables.h"
 #include "IOHIDPrivateKeys.h"
+#if HOUJI_IOS26
+#include "HoujiDigitizer26.h"
+#endif
 /* SWEET: no <math.h> in the kernel; only NAN is used */
 #ifndef NAN
 #define NAN __builtin_nanf("")
@@ -1739,6 +1742,57 @@ IOByteCount IOHIDEvent::readBytes(void * bytes, IOByteCount withLength)
 
     return appendBytes((UInt8 *)queueElement->payload, withLength);
 }
+
+#if HOUJI_IOS26
+IOByteCount IOHIDEvent::serviceQueueBytes(void *bytes, IOByteCount capacity) const
+{
+    UInt32 count = 0;
+    return writeServiceQueueBytes(static_cast<UInt8 *>(bytes), capacity, _senderID, 0, count);
+}
+
+IOByteCount IOHIDEvent::writeServiceQueueBytes(UInt8 *bytes, IOByteCount capacity,
+    uint64_t sender, unsigned depth, UInt32 &count) const
+{
+    constexpr IOByteCount headerSize = sizeof(IOHIDSystemQueueElement);
+    if (!_data || depth > UINT8_MAX || capacity < headerSize || _data->size < sizeof(IOHIDEventData)) {
+        return 0;
+    }
+    bool digitizer = _data->type == kIOHIDEventTypeDigitizer;
+    if (digitizer && _data->size < sizeof(IOHIDDigitizerEventData)) return 0;
+    IOByteCount payloadSize = digitizer ? sizeof(Houji26DigitizerData) : _data->size;
+    if (payloadSize > capacity - headerSize) return 0;
+
+    IOByteCount length = headerSize + payloadSize;
+    if (_children) {
+        for (unsigned i = 0; i < _children->getCount(); ++i) {
+            auto *child = static_cast<const IOHIDEvent *>(_children->getObject(i));
+            IOByteCount childLength = child->writeServiceQueueBytes(bytes ? bytes + length : nullptr,
+                capacity - length, sender, depth + 1, count);
+            if (!childLength) return 0;
+            length += childLength;
+        }
+    }
+
+    // A 23G90 queue header precedes each event, including child events.
+    ++count;
+    if (bytes) {
+        IOHIDSystemQueueElement header = {};
+        header.timeStamp = _timeStamp;
+        header.senderID = sender;
+        header.options = _options;
+        header.eventCount = count;
+        memcpy(bytes, &header, headerSize);
+        UInt8 *payload = bytes + headerSize;
+        if (digitizer) {
+            houji26WriteDigitizer(payload, *reinterpret_cast<const IOHIDDigitizerEventData *>(_data), depth);
+        } else {
+            memcpy(payload, _data, payloadSize);
+            payload[__builtin_offsetof(IOHIDEventData, depth)] = depth;
+        }
+    }
+    return length;
+}
+#endif
 
 OSData *IOHIDEvent::createBytes()
 {

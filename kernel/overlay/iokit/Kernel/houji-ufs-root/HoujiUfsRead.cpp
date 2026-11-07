@@ -369,12 +369,17 @@ extern "C" unsigned houji_sample_snapshot(char *,unsigned);
 extern "C" unsigned houji_network_stack_snapshot(char *,unsigned);
 extern "C" unsigned houji_cpu_dvfs_snapshot(char *,unsigned);
 extern "C" unsigned houji_adsp_snapshot(char *,unsigned);
-static const char *saveNativeLog(void) {
+#if HOUJI_IOS26 && (DEVELOPMENT || DEBUG)
+extern "C" unsigned houji26_wallpaper_snapshot(char *,unsigned);
+#endif
+static const char *saveNativeLog(__unused const char *stage) {
   static uint8_t metadata[7*4096],image[65536];
   constexpr unsigned gpuCapacity=20480,displayCapacity=4096,sampleCapacity=12800;
   constexpr unsigned networkCapacity=512,cpuCapacity=1024,batteryCapacity=2048,panelCapacity=4096;
+  constexpr unsigned wallpaperCapacity=3072;
   static_assert(sizeof(gNativeText)+gpuCapacity+displayCapacity+sampleCapacity+
-    networkCapacity+cpuCapacity+batteryCapacity+panelCapacity+128<sizeof(image)-4096,"snapshot prefixes exceed existing log file");
+    networkCapacity+cpuCapacity+batteryCapacity+panelCapacity+wallpaperCapacity+128<sizeof(image)-4096,
+    "snapshot prefixes exceed existing log file");
   nativeStage("logfs metadata read");
   for(unsigned i=0;i<7;i++)
     if(hostRead4k(0,4096+i,1,metadata+i*4096)!=kIOReturnSuccess) return "log metadata read failed";
@@ -399,6 +404,12 @@ static const char *saveNativeLog(void) {
   unsigned fwUsed=houjiFwProbeSnapshot(reinterpret_cast<char *>(image+4096+used),batteryCapacity-batteryUsed);
   used+=fwUsed;batteryUsed+=fwUsed;
   used+=houji_adsp_snapshot(reinterpret_cast<char *>(image+4096+used),batteryCapacity-batteryUsed);
+#if HOUJI_IOS26 && (DEVELOPMENT || DEBUG)
+  static const char gpuEnd[]="HOUJI26 STARTUP RESULT: gpu-runtime-end ";
+  static const char services[]="HOUJI26 STARTUP RESULT: stock-launchd-services ";
+  if(stage && (!strncmp(stage,gpuEnd,sizeof(gpuEnd)-1) || !strncmp(stage,services,sizeof(services)-1)))
+    used+=houji26_wallpaper_snapshot(reinterpret_cast<char *>(image+4096+used),wallpaperCapacity);
+#endif
   static const char marker[]="\n--- XNU kernel message buffer (tail; NULs removed) ---\n";
   memcpy(image+4096+used,marker,sizeof(marker)-1);used+=sizeof(marker)-1;
   used+=copyKernelMessages(reinterpret_cast<char *>(image+4096+used),sizeof(image)-4096-used);
@@ -513,7 +524,7 @@ extern "C" void houji_ufs_checkpoint(const char *stage,unsigned stopId) {
       panicProbeArmed=true;
     }
   }
-  if(gLogEnabled){const char *why=saveNativeLog();if(why)rootDiagnosticFailure(why);}
+  if(gLogEnabled){const char *why=saveNativeLog(stage);if(why)rootDiagnosticFailure(why);}
   if(panicProbeArmed) {
     // The saved intent is not evidence that panic happened. Only reach this
     // distinct panic after successful commit/flush/readback; panic does no I/O.
@@ -612,6 +623,9 @@ extern "C" void houji_ufs_root_attach(void) {
   IOLog("HOUJI ROOT: md0 is native UFS LUN0 [%u,%u), bytes=%llu; no RAM root backing\n",
         kHoujiRootFirst,kHoujiRootFirst+kHoujiRootBlocks,kHoujiRootBytes);
   if (!houji_smp_preflight()) {
+#if HOUJI_IOS26
+    houji_smp_report();
+#endif
     houji_ufs_checkpoint("SMP preflight failed; HFS not mounted",0);
     rootDiagnosticFailure("SMP worker/timer/SGI verification");
   }

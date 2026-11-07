@@ -16,6 +16,7 @@
 #include <pexpert/pexpert.h>
 #include <sys/proc.h>
 extern "C" {
+#include <kern/timer_call.h>
 #include <sys/redwood_input.h>
 }
 #include "HoujiCpuPolicy.h"
@@ -25,6 +26,7 @@ extern "C" {
 extern "C" uint64_t hakios_cpu_idle_mach(int cpu);
 extern "C" uint32_t houji26_running_mask(void);
 extern "C" void houji26_irq_counts(unsigned cpu, uint64_t *timer, uint64_t *ipi);
+extern "C" void gic_v3_irq_signal(uint32_t phys_id);
 extern "C" processor_t thread_bind(processor_t processor);
 extern uint32_t processor_avail_count;
 
@@ -33,6 +35,10 @@ extern "C" void houji_ufs_checkpoint(const char *, unsigned);
 extern "C" uint32_t houji26_process_presence(const char *const *, unsigned);
 extern "C" IOReturn native_adreno_provider_desktop_stats(uint64_t[7]);
 extern "C" void native_adreno_provider_snapshot(void);
+extern "C" bool houji26_native_hid_ready(void);
+extern "C" void houji26_native_hid_post(int, bool, int, int);
+extern "C" void houji26_native_hid_report(void);
+extern "C" void houji_smp_report(void);
 static uint32_t bootResults, bootMainSeen, bootTerminalResult;
 static bool bootResultsEnabled(void) {
     int enabled = 0, native = 0, recovery = 0;
@@ -138,7 +144,9 @@ extern "C" void houji26_boot_gpu_end(unsigned code, uint64_t elapsed_us) {
         elapsed_us, static_cast<unsigned>(gpu), stats[0], stats[2], stats[4]);
     if (bootResultsEnabled()) {
         native_adreno_provider_snapshot();
+        houji26_native_hid_report();
 #if DEVELOPMENT || DEBUG
+        houji_smp_report();
         if (__atomic_load_n(&bootDisplayExitState, __ATOMIC_ACQUIRE) == 2U) {
             IOLog("HOUJI26 BACKBOARDD FIRST EXIT: %s\n", bootDisplayExit);
         }
@@ -169,7 +177,19 @@ extern "C" void houji26_boot_exit(unsigned name_space, uint64_t code, int status
 extern "C" uint64_t houji_cpu_idle_mach(int cpu) { return hakios_cpu_idle_mach(cpu); }
 extern "C" void houji_cpu_dvfs_start(void) { HoujiCpuDvfs::start(); }
 
-static uint32_t proofStarted, proofMask, proofFailed;
+static uint32_t proofStarted, proofMask, proofTimerMask, proofFailed;
+static timer_call_data_t proofTimers[8];
+static uint64_t proofIpiBefore[8];
+
+static void proofTimer(void *argument, void *) {
+    unsigned cpu = static_cast<unsigned>(reinterpret_cast<uintptr_t>(argument));
+    if (static_cast<unsigned>(cpu_number()) == cpu) {
+        __atomic_fetch_or(&proofTimerMask, 1U << cpu, __ATOMIC_RELEASE);
+    } else {
+        __atomic_fetch_or(&proofFailed, 1U << cpu, __ATOMIC_RELEASE);
+    }
+}
+
 static void proofWorker(void *argument, wait_result_t) {
     unsigned cpu = static_cast<unsigned>(reinterpret_cast<uintptr_t>(argument));
     processor_t processor = cpu_to_processor(cpu);
@@ -180,13 +200,33 @@ static void proofWorker(void *argument, wait_result_t) {
     thread_bind(processor);
     thread_block(THREAD_CONTINUE_NULL);
     unsigned current = static_cast<unsigned>(cpu_number());
-    uint64_t mpidr = __builtin_arm_rsr64("MPIDR_EL1") & 0xffffff;
+    uint64_t mpidr = __builtin_arm_rsr64("MPIDR_EL1") & 0xff00ffffffULL;
     if (current != cpu || mpidr != static_cast<uint64_t>(cpu) << 8) {
         __atomic_fetch_or(&proofFailed, 1U << cpu, __ATOMIC_RELEASE);
     } else {
+        // An idle core need not already have taken a timer interrupt. Arm a
+        // non-migrating deadline on each core, using the normal XNU timer queue.
+        uint64_t deadline;
+        clock_interval_to_deadline(10, NSEC_PER_MSEC, &deadline);
+        timer_call_setup(&proofTimers[cpu], proofTimer, argument);
+        timer_call_enter(&proofTimers[cpu], deadline, TIMER_CALL_LOCAL | TIMER_CALL_SYS_CRITICAL);
+        unsigned count = ml_get_cpu_count();
+        if (count > 1) {
+            unsigned peer = (cpu + 1) % count;
+            gic_v3_irq_signal(ml_get_topology_info()->cpus[peer].phys_id);
+        }
         __atomic_fetch_or(&proofMask, 1U << cpu, __ATOMIC_RELEASE);
     }
     thread_bind(PROCESSOR_NULL);
+}
+
+static bool proofInterruptsSeen(unsigned count) {
+    for (unsigned cpu = 0; cpu < count; ++cpu) {
+        uint64_t timer = 0, ipi = 0;
+        houji26_irq_counts(cpu, &timer, &ipi);
+        if (!timer || (count > 1 && ipi <= proofIpiBefore[cpu])) return false;
+    }
+    return true;
 }
 
 extern "C" bool houji_smp_preflight(void) {
@@ -199,6 +239,10 @@ extern "C" bool houji_smp_preflight(void) {
     unsigned expected = 0;
     if (__atomic_compare_exchange_n(&proofStarted, &expected, 1U, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
         for (unsigned cpu = 0; cpu < count; ++cpu) {
+            uint64_t timer;
+            houji26_irq_counts(cpu, &timer, &proofIpiBefore[cpu]);
+        }
+        for (unsigned cpu = 0; cpu < count; ++cpu) {
             thread_t thread = THREAD_NULL;
             if (kernel_thread_start(proofWorker, reinterpret_cast<void *>(static_cast<uintptr_t>(cpu)), &thread) != KERN_SUCCESS) {
                 __atomic_fetch_or(&proofFailed, 1U << cpu, __ATOMIC_RELEASE);
@@ -210,29 +254,29 @@ extern "C" bool houji_smp_preflight(void) {
     uint64_t deadline = 0;
     nanoseconds_to_deadline(5 * NSEC_PER_SEC, &deadline);
     const uint32_t wanted = (1U << count) - 1;
-    while (__atomic_load_n(&proofMask, __ATOMIC_ACQUIRE) != wanted) {
+    while (__atomic_load_n(&proofMask, __ATOMIC_ACQUIRE) != wanted ||
+        __atomic_load_n(&proofTimerMask, __ATOMIC_ACQUIRE) != wanted ||
+        !proofInterruptsSeen(count)) {
         if (__atomic_load_n(&proofFailed, __ATOMIC_ACQUIRE) || mach_absolute_time() >= deadline) return false;
         IOSleep(1);
     }
     if (count > 1 && (houji26_running_mask() & wanted) != wanted) return false;
-    for (unsigned cpu = 0; cpu < count; ++cpu) {
-        uint64_t timer = 0, ipi = 0;
-        houji26_irq_counts(cpu, &timer, &ipi);
-        if (!timer || (count > 1 && !ipi)) return false;
-    }
     return __atomic_load_n(&proofFailed, __ATOMIC_ACQUIRE) == 0;
 }
 
 extern "C" void houji_smp_report(void) {
-    IOLog("HOUJI26 SMP: online=%u PSCI=%x workers=%x failed=%x; actual kernel state\n",
-        processor_avail_count, houji26_running_mask(), proofMask, proofFailed);
+    IOLog("HOUJI26 SMP: online=%u PSCI=%x workers=%x local-timers=%x failed=%x\n",
+        processor_avail_count, houji26_running_mask(),
+        __atomic_load_n(&proofMask, __ATOMIC_ACQUIRE),
+        __atomic_load_n(&proofTimerMask, __ATOMIC_ACQUIRE),
+        __atomic_load_n(&proofFailed, __ATOMIC_ACQUIRE));
     const ml_topology_info_t *topology = ml_get_topology_info();
     if (!topology) return;
     for (unsigned cpu = 0; cpu < topology->num_cpus; ++cpu) {
         uint64_t timer = 0, ipi = 0;
         houji26_irq_counts(cpu, &timer, &ipi);
-        IOLog("HOUJI26 CPU%u: phys=%x timer=%llu ipi=%llu\n", cpu,
-            topology->cpus[cpu].phys_id, timer, ipi);
+        IOLog("HOUJI26 CPU%u: phys=%x timer=%llu ipi=%llu preflight-ipi-before=%llu\n", cpu,
+            topology->cpus[cpu].phys_id, timer, ipi, proofIpiBefore[cpu]);
     }
 }
 extern "C" void houji_cpu_scheduler_report(void) { houji_smp_report(); }
@@ -240,6 +284,11 @@ extern "C" void houji_cpu_scheduler_report(void) { houji_smp_report(); }
 extern "C" void sweet_hid_touch(int finger, int down, int x, int y) {
     static uint32_t active;
     if (finger < 0 || finger >= 10 || x < 0 || x >= 1200 || y < 0 || y >= 2670) return;
+    if (down) houji_dvfs_touch();
+    if (houji26_native_hid_ready()) {
+        houji26_native_hid_post(finger, down != 0, x, y);
+        return;
+    }
     unsigned bit = 1U << finger;
     unsigned previous = __atomic_load_n(&active, __ATOMIC_ACQUIRE);
     unsigned kind = down ? ((previous & bit) ? REDWOOD_TOUCH_MOVE : REDWOOD_TOUCH_DOWN) : REDWOOD_TOUCH_UP;
@@ -247,7 +296,6 @@ extern "C" void sweet_hid_touch(int finger, int down, int x, int y) {
     else __atomic_fetch_and(&active, ~bit, __ATOMIC_ACQ_REL);
     redwood_touch_post(kind, finger, static_cast<uint32_t>(x) * 65535U / 1199U,
         static_cast<uint32_t>(y) * 65535U / 2669U);
-    if (down) houji_dvfs_touch();
 }
 
 /* These are optional diagnostics of the old framework, not device functions.

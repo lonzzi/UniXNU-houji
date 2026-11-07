@@ -76,6 +76,10 @@ class IOHIDEvent : public OSObject
     bool initWithTypeTimeStamp(IOHIDEventType type, UInt64 timeStamp, IOOptionBits options = 0, IOByteCount additionalCapacity=0);
     IOByteCount getLength(UInt32 * eventCount);
     IOByteCount appendBytes(UInt8 * bytes, IOByteCount withLength);
+#if HOUJI_IOS26
+    IOByteCount writeServiceQueueBytes(UInt8 *bytes, IOByteCount capacity,
+        uint64_t sender, unsigned depth, UInt32 &count) const;
+#endif
     
     static IOHIDEvent * _axisEvent (    IOHIDEventType          type,
                                         UInt64                  timeStamp,
@@ -463,6 +467,10 @@ public:
     
     virtual size_t          getLength(); 
     virtual IOByteCount     readBytes(void *bytes, IOByteCount withLength);
+#if HOUJI_IOS26
+    // Pass a null buffer to size the record within the same capacity bound.
+    IOByteCount serviceQueueBytes(void *bytes, IOByteCount capacity) const;
+#endif
     virtual OSData          *createBytes();
     
     virtual void            setSenderID(uint64_t senderID);

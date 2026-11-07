@@ -87,13 +87,20 @@ void IOHIDEventServiceQueue::free()
 
 Boolean IOHIDEventServiceQueue::enqueueEvent( IOHIDEvent * event )
 {
+#if HOUJI_IOS26
+    IOByteCount         eventSize = event->serviceQueueBytes(nullptr, getQueueSize());
+    if (!eventSize) {
+        return false;
+    }
+#else
     IOByteCount         eventSize = event->getLength();
+#endif
     IOByteCount         dataSize  = ALIGNED_DATA_SIZE (eventSize, sizeof(uint32_t));
     UInt32              head;
     UInt32              tail;
     UInt32              newTail = 0;
     UInt32              entrySize;
-    IODataQueueEntry *  entry;
+    IODataQueueEntry *  entry = nullptr;
     bool                queueFull = false;
     bool                result    = true;
     
@@ -123,9 +130,6 @@ Boolean IOHIDEventServiceQueue::enqueueEvent( IOHIDEvent * event )
         {
             entry = (IODataQueueEntry *)((UInt8 *)dataQueue->queue + tail);
 
-            entry->size = (UInt32)dataSize;
-            event->readBytes(&entry->data, eventSize);
-
             // The tail can be out of bound when the size of the new entry
             // exactly matches the available space at the end of the queue.
             // The tail can range from 0 to getQueueSize() inclusive.
@@ -137,7 +141,7 @@ Boolean IOHIDEventServiceQueue::enqueueEvent( IOHIDEvent * event )
             // Wrap around to the beginning, but do not allow the tail to catch
             // up to the head.
 
-            dataQueue->queue->size = (UInt32)dataSize;
+            entry = dataQueue->queue;
 
             // We need to make sure that there is enough room to set the size before
             // doing this. The user client checks for this and will look for the size
@@ -148,8 +152,6 @@ Boolean IOHIDEventServiceQueue::enqueueEvent( IOHIDEvent * event )
                 ((IODataQueueEntry *)((UInt8 *)dataQueue->queue + tail))->size = (UInt32)dataSize;
             }
 
-            event->readBytes(&dataQueue->queue->data, eventSize);
-            
             newTail = entrySize;
         }
         else
@@ -167,9 +169,6 @@ Boolean IOHIDEventServiceQueue::enqueueEvent( IOHIDEvent * event )
         {
             entry = (IODataQueueEntry *)((UInt8 *)dataQueue->queue + tail);
 
-            entry->size = (UInt32)dataSize;
-            event->readBytes(&entry->data, eventSize);
-
             newTail = tail + entrySize;
         }
         else
@@ -179,7 +178,15 @@ Boolean IOHIDEventServiceQueue::enqueueEvent( IOHIDEvent * event )
         }
     }
 
-    if (result) {
+    if (entry) {
+        entry->size = (UInt32)dataSize;
+#if HOUJI_IOS26
+        if (event->serviceQueueBytes(&entry->data, eventSize) != eventSize) {
+            return false;
+        }
+#else
+        event->readBytes(&entry->data, eventSize);
+#endif
         // Publish the data we just enqueued
         __c11_atomic_store((_Atomic UInt32 *)&dataQueue->tail, newTail, __ATOMIC_RELEASE);
     }

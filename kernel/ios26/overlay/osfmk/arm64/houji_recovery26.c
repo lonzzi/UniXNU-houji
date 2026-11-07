@@ -16,12 +16,33 @@ void houji26_start_recovery_timer(void);
 void houji26_finish_trial(unsigned reason) __attribute__((noreturn));
 void houji26_capture_reason(const char *text);
 const void *houji26_panic_record(void);
+void houji26_smp_screen(const char *stage, unsigned cpu);
 
 extern struct vc_info vinfo;
 extern unsigned char iso_font[256 * 16];
 static unsigned terminal_entered;
 static uint64_t trial_deadline;
 static Hjt26Reason first_panic __attribute__((aligned(16384)));
+
+void houji26_smp_screen(const char *stage, unsigned cpu) {
+    int enabled = 0;
+    if (!PE_parse_boot_argn("houji_smp_screen", &enabled, sizeof(enabled)) || enabled != 1) return;
+    Hjt26Surface surface;
+    uintptr_t base = (uintptr_t)vinfo.v_baseaddr;
+    size_t bytes = (size_t)vinfo.v_rowbytes * vinfo.v_height;
+    if ((base >> 48) != 0xffff || !hjt26_surface(&surface, base, vinfo.v_width,
+        vinfo.v_height, vinfo.v_rowbytes, vinfo.v_depth, bytes) || surface.height < 272) return;
+    surface.base += 160 * surface.row_words;
+    surface.height = 112;
+    static const char title[] = "HOUJI IOS26 SMP";
+    char detail[96];
+    uint64_t mpidr = __builtin_arm_rsr64("MPIDR_EL1");
+    unsigned affinity = (unsigned)(((mpidr >> 32) & 0xff) << 24 | (mpidr & 0xffffff));
+    int length = snprintf(detail, sizeof(detail), "CPU%u %s (local affinity %08x)", cpu, stage, affinity);
+    if (length <= 0 || (unsigned)length >= sizeof(detail)) return;
+    hjt26_render(&surface, iso_font, title, sizeof(title) - 1, detail, (size_t)length);
+    __asm__ volatile("dsb sy" ::: "memory");
+}
 
 const void *houji26_panic_record(void) { return &first_panic.record; }
 static void flush_panic_record(void) {

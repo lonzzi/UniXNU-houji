@@ -465,7 +465,7 @@
   },
   "ios26": {
     "target_manifest": "targets/ios26.json",
-    "status": "native-hfs-root-and-gpu-2d-verified-userland-pending",
+    "status": "native-hfsx-system-gpu-submission-and-touch-verified",
     "hardware_boot_verified": true,
     "reference": {
       "repository": "https://github.com/superboyyy/hakios-arm64e-dada",
@@ -527,13 +527,14 @@
       "firmware_word_writes_and_AArch64_instructions": true,
       "ISO_font_orientation": true,
       "native_HFS_root_selection": true,
-      "reserved_PID1_exit_checkpoint": true
+      "reserved_PID1_exit_checkpoint": true,
+      "native_HID_23G90_queue_layout": true
     },
     "not_yet_qualified": [
-      "stock iOS26 service functionality and visible desktop runtime",
-      "Metal shaders/presentation and refresh on houji",
-      "multicore scheduler",
-      "brightness/touch/battery and app runtime on iOS26"
+      "stock iOS26 service coverage and wallpaper rendering",
+      "Metal shader coverage, color correctness and interactive frame rate on houji",
+      "long-running multicore scheduling and thermal behavior on iOS26",
+      "manual brightness, battery reporting and app coverage on iOS26"
     ],
     "boot_manager": {
       "repository": "https://github.com/UniXNU/UniXNU.git",
@@ -544,17 +545,17 @@
     },
     "testing_paused_by_user": false,
     "latest_device_result": {
-      "profile": "full-system-v26-first-visible-system",
+      "profile": "full-system-v33-eight-cpu",
       "kernel_entry_verified": true,
       "native_UFS_initialized": true,
       "native_HFSX_identity_verified": true,
-      "logical_cpus_verified": 1,
+      "logical_cpus_verified": 8,
       "CPU0_timer_verified": true,
       "startup_checkpoint_CRC_verified": true,
       "user_entry_verified": true,
       "GPU_verified": true,
       "GUI_verified": true,
-      "result": "User observed a lock screen or home screen. Backboardd completed 87 native GPU submissions with zero submit errors and 86 framebuffer swaps and CPU copies. The user reported touch unresponsive. Physical touch activity and the backboardd read loop are observable; touch delivery, panel brightness control, shader coverage and refresh remain separate checks.",
+      "result": "User confirmed the system UI, reported smoother interaction with remaining lag and no home wallpaper, and reported a battery regression. All eight cores ran the local timer and IPI checks. Backboardd completed 950 GPU submits with zero submit errors and 900 framebuffer swaps.",
       "native_HFSX_mounted": true,
       "init_exec_attempted": true,
       "GPU_2D_startup_self_test": {
@@ -581,7 +582,7 @@
         "retained_early_exec_records": false,
         "evidence": "gpu-runtime-end main=1"
       },
-      "recovery_seen_within_seconds": 256,
+      "recovery_seen_within_seconds": 248,
       "coherence_probe": {
         "runtime_mode": 3,
         "cached_WC_coherent": 2,
@@ -590,23 +591,20 @@
       "stock_launchd_dyld_reached": true,
       "stock_launchd_main_verified": true,
       "GPU_worker_exit_snapshot": {
-        "kernel_seconds": 221.539102,
+        "kernel_seconds": 214.215127,
         "mode": 3,
         "result": 0,
-        "elapsed_us": 141005587,
+        "elapsed_us": 135876559,
         "gpu_query_status": 0,
-        "backboardd_submits": 87,
+        "backboardd_submits": 950,
         "submit_errors": 0,
-        "completed_fence": 185,
-        "Metal_name_reads": 2,
+        "completed_fence": 1226,
+        "Metal_name_reads": 4,
         "plugin_markers": 6,
-        "provider_opens": 4,
-        "provider_closes": 3,
-        "client_window_names": [
-          "backboardd"
-        ],
-        "framebuffer_swaps": 86,
-        "framebuffer_CPU_copies": 86
+        "provider_opens": 6,
+        "provider_closes": 4,
+        "framebuffer_swaps": 900,
+        "framebuffer_CPU_copies": 900
       },
       "display_initialization": {
         "registered": true,
@@ -620,22 +618,56 @@
           17859600
         ]
       },
-      "userspace_wait": {
-        "single_sample_kernel_seconds": 212.596141,
-        "backboardd_exit_retained": false,
-        "backboardd_fault_retained": false,
-        "input_thread": "read loop on /dev/redwood-touch",
-        "physical_touch_activity_bursts": 5
-      },
       "user_observation": {
         "visible_lock_or_home_screen": true,
-        "touch_responds": false
+        "home_wallpaper_visible": false,
+        "smoother_with_remaining_lag": true,
+        "battery_state_regression": true
       },
       "backlight_snapshot": {
         "registered": true,
-        "requests": 86,
-        "rejected": 86,
+        "requests": 308,
+        "rejected": 308,
         "last_panel_level": 307
+      },
+      "native_HID": {
+        "registered": true,
+        "connections": 1,
+        "generated_events": 112,
+        "queued_events": 112
+      },
+      "panel_scan_readback": {
+        "hardware_counter_delta": 483,
+        "elapsed_us": 4004091,
+        "compositor_frame_rate_measured": false
+      },
+      "smp_preflight": {
+        "online": 8,
+        "psci_mask": 255,
+        "bound_worker_mask": 255,
+        "local_timer_mask": 255,
+        "failed_mask": 0,
+        "new_SGI_received_by_each_core": true
+      },
+      "battery_transport": {
+        "adsp_stage": -5,
+        "error": -5,
+        "pmic_replies": 0,
+        "UI_verified": false,
+        "profile": "full-system-v33-eight-cpu"
+      },
+      "battery_followup": {
+        "profile": "full-system-v34-boot-cpu-spi",
+        "adsp_stage": 13,
+        "error": 0,
+        "adsp_ready_ms": 469,
+        "pmic_replies": 99,
+        "pmic_errors": 0,
+        "pmic_timeouts": 0,
+        "capacity_percent": 94,
+        "usb_online": true,
+        "is_charging": true,
+        "user_confirmed_indicator": true
       }
     },
     "rust": {
@@ -812,6 +844,6 @@
       "GUI_verified": false,
       "result": "2026-11-06 owner screen photo shows Darwin 25.6.0, initialized GIC/VM/IOKit/HFS and HOUJI IOS26 ARM64E PID1 REACHED. RAM-only one-CPU trial; no physical root install or runtime collectors."
     },
-    "hardware_boot_scope": "Xiaomi 14 verified native arm64e PID1, stock iOS26 launchd, visible system UI and completed backboardd GPU submissions and framebuffer swaps. Touch delivery, brightness control, Metal shader coverage, refresh and multicore need device verification."
+    "hardware_boot_scope": "Xiaomi 14 ran native arm64e iOS26 with eight CPUs, stock launchd, system UI, real A750 submissions and framebuffer swaps. Native touch was confirmed in v29. v34 restored the battery indicator. Interactive frame rate, wallpaper, manual brightness and USB transitions need further validation."
   }
 }

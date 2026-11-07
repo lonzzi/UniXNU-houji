@@ -68,10 +68,10 @@ diff --git a/iokit/Kernel/houji-ufs-root/HoujiUfsRead.cpp b/iokit/Kernel/houji-u
 +#include <machine/machine_routines.h>
 +extern "C" const void *houji26_panic_record(void);
 +#endif
- static const char *saveNativeLog(void) {
-   static uint8_t metadata[7*4096],image[65536];
-   constexpr unsigned gpuCapacity=20480,displayCapacity=4096,sampleCapacity=12800;
-@@ -403,6 +407,18 @@
+ #if HOUJI_IOS26 && (DEVELOPMENT || DEBUG)
+ extern "C" unsigned houji26_wallpaper_snapshot(char *,unsigned);
+ #endif
+@@ -413,6 +417,18 @@
    memcpy(image+4096+used,marker,sizeof(marker)-1);used+=sizeof(marker)-1;
    used+=copyKernelMessages(reinterpret_cast<char *>(image+4096+used),sizeof(image)-4096-used);
    houjiLogHeader(image,image+4096,used);
@@ -179,16 +179,44 @@ diff --git a/iokit/Kernel/houji-ufs-root/battery/HoujiAdspTransport.cpp b/iokit/
 diff --git a/iokit/Kernel/houji-ufs-root/HoujiGpuNativeLive.inc b/iokit/Kernel/houji-ufs-root/HoujiGpuNativeLive.inc
 --- a/iokit/Kernel/houji-ufs-root/HoujiGpuNativeLive.inc
 +++ b/iokit/Kernel/houji-ufs-root/HoujiGpuNativeLive.inc
-@@ -6,6 +6,8 @@
+@@ -6,6 +6,9 @@
  #define HOUJI_GPU_NATIVE_LIVE_INC
  extern "C" void houji_touch_driver_report(void);
  extern "C" void houji_managed_physical_map_debug_report(void);
++extern "C" uint64_t native_adreno_provider_gate_owner(void);
 +extern "C" void houji26_boot_gpu_end(unsigned, uint64_t);
 +extern "C" void houji26_finish_trial(unsigned) __attribute__((noreturn));
  static struct {
   unsigned mode,requested,retained,ufs_proven,fs_trial,coexist,deny,phase,code,draws,pending_read,pending_write,worker;
   uint64_t dma_pa,dma_owned;uint32_t before_fence,after_fence,crc;
-@@ -155,6 +157,7 @@
+@@ -109,7 +112,7 @@
+  if(gHoujiLiveDiagnostics)native_adreno_provider_snapshot();panic("HOUJI LIVE: independent runtime deadline; retained resources, PSCI-only recovery, no FS");
+ }
+ static void houjiLiveWorker(void*,wait_result_t){
+- thread_set_thread_name(current_thread(),"houji-gpu-owner");auto&l=gHoujiLive;uint64_t started=houjiSubmitNow(nullptr),busy_since=0,last_saved=UINT64_MAX,last_report=0,last_desktop_save=0,first_draw=0,first_fence=0,base_swaps=0,base_presents=0;unsigned checks=0,probe_state=0;
++ thread_set_thread_name(current_thread(),"houji-gpu-owner");auto&l=gHoujiLive;uint64_t started=houjiSubmitNow(nullptr),busy_since=0,busy_owner=0,last_saved=UINT64_MAX,last_report=0,last_desktop_save=0,first_draw=0,first_fence=0,base_swaps=0,base_presents=0;unsigned checks=0,probe_state=0;
+  if(l.mode==3)houji_framebuffer_counts(&base_swaps,&base_presents);
+  for(;;){
+   IOSleep(l.mode==3?500:l.mode==2?250:100);++checks;
+@@ -123,8 +126,15 @@
+   }
+   IOReturn polled=l.mode>=2?native_adreno_provider_try_poll():native_adreno_provider_poll();
+   if(polled==kIOReturnBusy && l.mode>=2){
+-   if(!busy_since)busy_since=houjiSubmitNow(nullptr);
+-   if(houjiSubmitNow(nullptr)-busy_since>10000000)panic("HOUJI LIVE: provider call held gate over10s; all resources pinned, last progress saved, no-FS PSCI");
++   const uint64_t owner=native_adreno_provider_gate_owner();
++   const uint64_t now=houjiSubmitNow(nullptr);
++   if(!uint32_t(owner)){busy_since=0;}
++   else if(!busy_since || owner!=busy_owner){busy_owner=owner;busy_since=now;}
++   else if(now-busy_since>10000000 && native_adreno_provider_gate_owner()==owner){
++    const uint64_t progress=native_adreno_provider_progress_token();
++    panic("HOUJI LIVE: GPU issuer held >10s, NativeAdrenoPublish.cpp:%u selector=%u inflight=%u; pinned, no FS",
++      uint32_t(owner),uint32_t(progress & 0xffff),uint32_t((progress>>16) & 0xffff));
++   }
+   }else {busy_since=0;if(polled){l.code=13;break;}}
+   if(l.mode==3){
+    if(gHoujiDvfs.failed){l.code=16;break;}
+@@ -155,6 +165,7 @@
    }else if(checks>=100)break;
   }
   if(gHoujiLiveDiagnostics){houjiProviderPerfReport();native_adreno_provider_snapshot();IOLog("HOUJI LIVE LIFETIME: worker=%u mode=%u checks=%u elapsed-us=%llu probe-state=%u code=%u fence=%u/%u; original roots and all active BO retained\n",l.worker,l.mode,checks,houjiSubmitNow(nullptr)-started,probe_state,l.code,gHoujiSubmit.seq,gHoujiSubmit.observed);}
@@ -196,7 +224,7 @@ diff --git a/iokit/Kernel/houji-ufs-root/HoujiGpuNativeLive.inc b/iokit/Kernel/h
   gHoujiApi.in_op=1;
   if(native_adreno_provider_stop(houjiProviderReset,nullptr)){__atomic_store_n(&l.deny,1u,__ATOMIC_RELEASE);panic("HOUJI LIVE: stop/isolation uncertain; no FS, every BO retained");}
   gHoujiApi.status.noteSuspend();gHoujiCp.active=0;gHoujiFull.active=0;gHoujiSubmit.active=0;gHoujiApi.in_op=gHoujiApi.active=0;
-@@ -162,6 +165,8 @@
+@@ -162,6 +173,8 @@
   if(gHoujiLiveDiagnostics){houjiFullReport();houjiCpSaveFinal();}
   if(l.mode==2 && gHoujiLiveDiagnostics){houjiProbeLogDump();houjiCpSaveFinal();}
   if(l.mode==3 && gHoujiLiveDiagnostics){houjiWallpaperLogDump();houjiCpSaveFinal();houjiKeyboardLogDump();houjiCpSaveFinal();}
@@ -208,7 +236,46 @@ diff --git a/iokit/Kernel/houji-ufs-root/HoujiGpuNativeLive.inc b/iokit/Kernel/h
 diff --git a/iokit/Kernel/houji-ufs-root/Adreno740/NativeAdrenoPublish.cpp b/iokit/Kernel/houji-ufs-root/Adreno740/NativeAdrenoPublish.cpp
 --- a/iokit/Kernel/houji-ufs-root/Adreno740/NativeAdrenoPublish.cpp
 +++ b/iokit/Kernel/houji-ufs-root/Adreno740/NativeAdrenoPublish.cpp
-@@ -1134,6 +1134,8 @@
+@@ -147,22 +147,38 @@
+ // gtrace=1 is an explicit CPU-only diagnostic. The wrappers preserve the
+ // original mutex acquisition, try-lock failure and release points exactly.
+ static NativeAdrenoIssuerTrace nativeAdrenoIssuerTrace;
++// One word publishes the acquisition generation and its source line. The
++// watchdog can distinguish a held mutex from successive short owners even
++// with detailed tracing disabled. Only the mutex owner changes this word.
++static uint64_t nativeAdrenoIssuerOwner;
++extern "C" uint64_t native_adreno_provider_gate_owner(void) {
++ return __atomic_load_n(&nativeAdrenoIssuerOwner,__ATOMIC_ACQUIRE);
++}
++static void nativeAdrenoIssuerAcquired(unsigned site) {
++ const uint64_t previous=__atomic_load_n(&nativeAdrenoIssuerOwner,__ATOMIC_RELAXED);
++ const uint64_t next=(previous & 0xffffffff00000000ULL)+(1ULL<<32);
++ __atomic_store_n(&nativeAdrenoIssuerOwner,next | site,__ATOMIC_RELEASE);
++}
+ static uint64_t nativeAdrenoIssuerNow() {
+  return nativeAdrenoIssuerTrace.enabled && g.clock.now_us?g.clock.now_us(g.clock.cookie):0;
+ }
+ static void nativeAdrenoIssuerLock(unsigned site) {
+  const uint64_t requested=nativeAdrenoIssuerNow();
+  IOLockLock(g.lock);
++ nativeAdrenoIssuerAcquired(site);
+  nativeAdrenoIssuerTrace.begin(requested,nativeAdrenoIssuerNow(),site);
+ }
+ static bool nativeAdrenoIssuerTryLock(unsigned site) {
+  const uint64_t requested=nativeAdrenoIssuerNow();
+  if(!IOLockTryLock(g.lock))return false;
++ nativeAdrenoIssuerAcquired(site);
+  nativeAdrenoIssuerTrace.begin(requested,nativeAdrenoIssuerNow(),site);return true;
+ }
+ static void nativeAdrenoIssuerUnlock() {
+  if(nativeAdrenoIssuerTrace.enabled)
+   nativeAdrenoIssuerTrace.end(nativeAdrenoIssuerNow(),g.ring?g.ring->lastSubmitted():0,g.ring?g.ring->completedFence():0);
++ const uint64_t owner=__atomic_load_n(&nativeAdrenoIssuerOwner,__ATOMIC_RELAXED);
++ __atomic_store_n(&nativeAdrenoIssuerOwner,owner & 0xffffffff00000000ULL,__ATOMIC_RELEASE);
+  IOLockUnlock(g.lock);
+ }
+ static void nativeAdrenoIssuerContext(unsigned method,unsigned client,const void *input,size_t bytes) {
+@@ -1134,6 +1150,8 @@
  extern "C" void native_adreno_provider_snapshot(void){
   const auto&d=native_adreno_metal_diag;
   IOLog("HOUJI USERLAND PROGRESS: calls=%u selector=%u status=%x inflight=%u ext=%u/%x marker=%x result=%u opens=%u closes=%u; RAM observation, no GPU access or gate\n",d.calls,d.last_selector,d.last_status,d.inflight,d.ext_selector,d.ext_status,d.marks_total?d.marks[(d.marks_total-1)&15]:0,native_adreno_provider_probe_result(),d.opens,d.closes);

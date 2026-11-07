@@ -31,6 +31,11 @@
 
 extern "C" uint64_t mach_absolute_time(void);
 
+#if HOUJI_IOS26
+extern "C" uint32_t houji26_native_hid_queued(void);
+static uint32_t houji26HidOpens, houji26HidEvents;
+#endif
+
 /* One open client: the user client and its event callback. */
 class IOHIDEventServiceClient : public OSObject {
 	OSDeclareDefaultStructors(IOHIDEventServiceClient);
@@ -318,6 +323,9 @@ IOHIDEventService::newUserClient(task_t owningTask, void *securityID, UInt32 typ
 		return kIOReturnUnsupported;
 	}
 	*handler = client;
+#if HOUJI_IOS26
+	__atomic_fetch_add(&houji26HidOpens, 1U, __ATOMIC_RELAXED);
+#endif
 	return kIOReturnSuccess;
 }
 
@@ -465,11 +473,16 @@ SweetHIDTouch::touch(int finger, bool down, int x, int y)
 		return;
 	}
 	collection->setIntegerValue(kIOHIDEventFieldDigitizerCollection, TRUE);
+#if HOUJI_IOS26
+	collection->setIntegerValue(kIOHIDEventFieldDigitizerIsDisplayIntegrated, TRUE);
+#endif
 	if (!was && down) {
 		fEdge[finger] = x < HOUJI_TOUCH_EDGE_PX || x >= 1200 - HOUJI_TOUCH_EDGE_PX ||
 		    y < HOUJI_TOUCH_EDGE_PX || y >= 2670 - HOUJI_TOUCH_EDGE_PX;
 	}
+#if !HOUJI_IOS26
 	bool edge = fEdge[finger];
+#endif
 
 	UInt32 cmask = 0;
 	for (int i = 0; i < SWEET_TOUCH_FINGERS; i++) {
@@ -499,6 +512,9 @@ SweetHIDTouch::touch(int finger, bool down, int x, int y)
 		child->setIntegerValue(kIOHIDEventFieldDigitizerIndex, i);
 		child->setIntegerValue(kIOHIDEventFieldDigitizerIdentity, i + 2);
 		child->setIntegerValue(kIOHIDEventFieldDigitizerTouch, d);
+#if HOUJI_IOS26
+		child->setIntegerValue(kIOHIDEventFieldDigitizerIsDisplayIntegrated, TRUE);
+#endif
 		child->setIntegerValue(kIOHIDEventFieldDigitizerEventMask, mask);
 		collection->appendChild(child);
 		child->release();
@@ -518,10 +534,14 @@ SweetHIDTouch::touch(int finger, bool down, int x, int y)
 	collection->setIntegerValue(kIOHIDEventFieldDigitizerButtonMask, any ? 1 : 0);
 	IOLockUnlock(fLock);
 
+#if HOUJI_IOS26
+	__atomic_fetch_add(&houji26HidEvents, 1U, __ATOMIC_RELAXED);
+#else
 	if (was != down) {
 		IOLog("SWEET HID: touch %d %s at %d,%d%s\n", finger, down ? "down" : "up", x, y,
 		    edge ? " edge" : "");
 	}
+#endif
 	dispatchEvent(collection);
 	collection->release();
 }
@@ -540,6 +560,54 @@ sweet_hid_key(int key, int down)
 	}
 }
 
+#if HOUJI_IOS26
+static uint32_t houji26NativeTouchReady;
+
+extern "C" void
+houji26_start_native_hid(void)
+{
+	unsigned enabled = 0;
+	if (!PE_parse_boot_argn("houji_native_hid", &enabled, sizeof(enabled)) || enabled != 1 || gSweetTouch) {
+		return;
+	}
+	IOService *resources = IOService::getResourceService();
+	if (!resources) {
+		return;
+	}
+	auto *touch = OSTypeAlloc(SweetHIDTouch);
+	if (!touch) {
+		return;
+	}
+	if (touch->init() && touch->attach(resources)) {
+		if (touch->start(resources)) {
+			__atomic_store_n(&houji26NativeTouchReady, 1U, __ATOMIC_RELEASE);
+		} else {
+			touch->detach(resources);
+		}
+	}
+	touch->release();
+}
+
+extern "C" bool
+houji26_native_hid_ready(void)
+{
+	return __atomic_load_n(&houji26NativeTouchReady, __ATOMIC_ACQUIRE) != 0;
+}
+
+extern "C" void
+houji26_native_hid_post(int finger, bool down, int x, int y)
+{
+	gSweetTouch->touch(finger, down, x, y);
+}
+
+extern "C" void
+houji26_native_hid_report(void)
+{
+	IOLog("HOUJI26 NATIVE TOUCH: registered=%u opens=%u events=%u queued=%u\n", houji26_native_hid_ready() ? 1U : 0U,
+	    __atomic_load_n(&houji26HidOpens, __ATOMIC_RELAXED), __atomic_load_n(&houji26HidEvents, __ATOMIC_RELAXED),
+	    houji26_native_hid_queued());
+}
+#else
 extern "C" void houji_dvfs_touch(void);
 extern "C" void
 sweet_hid_touch(int finger, int down, int x, int y)
@@ -549,3 +617,4 @@ sweet_hid_touch(int finger, int down, int x, int y)
 		gSweetTouch->touch(finger, down != 0, x, y);
 	}
 }
+#endif

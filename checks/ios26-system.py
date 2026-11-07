@@ -97,7 +97,9 @@ with tempfile.TemporaryDirectory(prefix='houji26-system-') as temporary:
     assert 'CHAR16 BootArgs[1024]' in content and 'StrLen(L" houji_touch=1")' in content
     assert all(v in tokens for v in ('cpus=8', 'serial=0', 'houji_native_root=1', 'houji_ufs_log=1',
                                    'houji_return_recovery=1', 'houji_trial_seconds=300',
-                                   'houji_gpu_runtime=5', 'gtrace=0', 'sweetsample=-', 'sweetiolog=-'))
+                                   'houji_gpu_runtime=5', 'houji_dvfs=3', 'gpu_max_mhz=903',
+                                   'houji_native_hid=1', 'gtrace=0', 'sample=0',
+                                   'sweetsample=-', 'sweetiolog=-'))
     assert 'mTouchHandoffReady?1:0' in content
     assert content.index('Status = RunLogFsTest (ImageHandle);') < content.index('Houji26StartupFailureReset (Status, StartupRecoveryReady)') < content.index('Status=GpuPowerHandoffPrepare(ImageHandle);')
     executable = temporary / 'startup-recovery'

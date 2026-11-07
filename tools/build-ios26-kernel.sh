@@ -11,6 +11,17 @@ if [[ ! -f "$HOUJI_XNU/pexpert/pexpert/arm64/HOUJI.h" ||
   exit 1
 fi
 python3 "$task_root/tools/check-trial-bindings.py" "$HOUJI_XNU"
+# The HID usage table is a local SDK input shared with the iOS16 build.
+hid_header="$HOUJI_XNU/iokit/Kernel/arm/hid/IOHIDUsageTables.h"
+if [[ ! -f "$hid_header" ]]; then
+  sdk_root=$(xcrun --sdk macosx --show-sdk-path)
+  sdk_hid=${HOUJI_HID_USAGE_HEADER:-"$sdk_root/System/Library/Frameworks/Kernel.framework/Headers/IOKit/hid/IOHIDUsageTables.h"}
+  if [[ ! -r "$sdk_hid" ]]; then
+    echo "Missing IOHIDUsageTables.h; set HOUJI_HID_USAGE_HEADER to the local SDK header" >&2
+    exit 1
+  fi
+  cp "$sdk_hid" "$hid_header"
+fi
 export XNU_SRC="$HOUJI_XNU" XNU_ARCH=arm64e MACHINE=HOUJI
 export RC_DARWIN_KERNEL_VERSION=25.6.0
 bash "$HOUJI_REFERENCE/base/xnu-build.sh" -j"${HOUJI_JOBS:-8}" all HOUJI_STANDALONE_KERNEL=1

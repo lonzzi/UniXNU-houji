@@ -88,6 +88,15 @@ enum {
     kUserClientStateClose = 0x2
 };
 
+#if HOUJI_IOS26
+static uint32_t houji26HidQueued;
+
+extern "C" uint32_t houji26_native_hid_queued(void)
+{
+    return __atomic_load_n(&houji26HidQueued, __ATOMIC_RELAXED);
+}
+#endif
+
 //==============================================================================
 // IOHIDEventServiceUserClient::getService
 //==============================================================================
@@ -632,6 +641,11 @@ void IOHIDEventServiceUserClient::enqueueEventGated( IOHIDEvent * event)
         _lastEventTime = mach_continuous_time();
         _lastEventType = event->getType();
         Boolean result = _queue->enqueueEvent(event);
+#if HOUJI_IOS26
+        if (result) {
+            __atomic_fetch_add(&houji26HidQueued, 1U, __ATOMIC_RELAXED);
+        }
+#endif
         if (result == false) {
             _lastDroppedEventTime = _lastEventTime;
             ++_droppedEventCount;
