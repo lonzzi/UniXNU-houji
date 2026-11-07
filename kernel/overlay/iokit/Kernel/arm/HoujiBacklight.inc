@@ -33,6 +33,37 @@ extern "C" unsigned houji_backlight_snapshot(char *out,unsigned capacity) {
     return n>0?((unsigned)n<capacity?(unsigned)n:capacity-1):0;
 }
 #include "HoujiBacklightProtocol.h"
+#if HOUJI_IOS26
+static bool houji_backlight_publish_ios26(IOService *service) {
+    // CoreBrightness 23G90 needs both properties before matching the service.
+    // These are logical slider units, based on its 5/140/400 fallback range.
+    // The existing DSI policy still converts the normalized request to panel levels.
+    static constexpr uint32_t curve[] = {5u * HBL_SCALE, 140u * HBL_SCALE, 400u * HBL_SCALE};
+    static constexpr struct { const char *key; uint32_t value; } calibration[] = {
+        {"current-for-max-backlight", HBL_SCALE},
+        {"current-for-mid-backlight", HBL_SCALE / 2},
+        {"hardware-max-current-limit", HBL_SCALE},
+        {"lMaxProduct", curve[2]}, {"lMidProduct", curve[1]}, {"lMinProduct", curve[0]},
+        {"lMaxPanel", curve[2]}, {"lMidPanel", curve[1]}, {"lMinPanel", curve[0]},
+    };
+    OSDictionary *parameters = OSDictionary::withCapacity(sizeof(calibration) / sizeof(calibration[0]));
+    OSData *table = OSData::withBytes(curve, sizeof(curve));
+    bool complete = parameters && table;
+    for (const auto &entry : calibration) {
+        if (!complete) break;
+        OSNumber *number = OSNumber::withNumber(entry.value, 32);
+        complete = number && parameters->setObject(entry.key, number);
+        OSSafeReleaseNULL(number);
+    }
+    if (complete) {
+        complete = service->setProperty("backlight-calibration-parameters", parameters) &&
+            service->setProperty("backlight-marketing-table", table);
+    }
+    OSSafeReleaseNULL(parameters);
+    OSSafeReleaseNULL(table);
+    return complete;
+}
+#endif
 class HoujiBacklight : public IOService {
     OSDeclareDefaultStructors(HoujiBacklight)
     IOWorkLoop *loop=nullptr;
@@ -53,7 +84,8 @@ class HoujiBacklight : public IOService {
     }
     // Failure codes: map/mode=1, workloop=2, maximum-return command=3,
     // command completion=4, read submission=5, response timeout/error=6,
-    // brightness submission=7. Do not retry an uncertain FIFO transaction.
+    // brightness submission=7, iOS26 profile allocation=8.
+    // Do not retry an uncertain FIFO transaction.
     void fail(unsigned reason) {
         observe();HoujiBacklightTrace::set(HoujiBacklightTrace::Failure,reason);
         __atomic_store_n(&failed,true,__ATOMIC_RELEASE);
@@ -78,6 +110,13 @@ class HoujiBacklight : public IOService {
         OSSafeReleaseNULL(b);OSSafeReleaseNULL(p);OSSafeReleaseNULL(min);OSSafeReleaseNULL(max);OSSafeReleaseNULL(v);
     }
     void publishFirst(unsigned level,bool measured) {
+#if HOUJI_IOS26
+        if (!houji_backlight_publish_ios26(this)) {
+            fail(8);
+            IOLog("HOUJI BACKLIGHT: CoreBrightness profile unavailable\n");
+            return;
+        }
+#endif
         current=from=to=houjiBacklightFraction(level);written=level;
         publish(current);setProperty("BootBrightnessMeasured",measured);
         setProperty("backlight-control",true);registerService();

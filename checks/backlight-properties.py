@@ -9,22 +9,48 @@ root = Path(__file__).resolve().parents[1]
 text = (root / 'kernel/overlay/iokit/Kernel/arm/HoujiBacklight.inc').read_text()
 at = text.index('    static OSNumber *numberValue(')
 methods = text[at:text.index('    bool start(', at)]
+at = text.index('static bool houji_backlight_publish_ios26(')
+publisher = text[at:text.index('#endif', at)]
 unit = r'''
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <map>
+#include <memory>
 #include <string>
+#include <vector>
 struct OSObject {virtual ~OSObject()=default;};
+static std::vector<std::unique_ptr<OSObject>> objects;
+template<class T, class... Args> T *object(Args... args) {
+ auto owned=std::make_unique<T>(args...);
+ auto *value=owned.get();
+ objects.push_back(std::move(owned));
+ return value;
+}
+#define OSSafeReleaseNULL(value) (value=nullptr)
 struct OSNumber : OSObject {
  uint64_t value;explicit OSNumber(uint64_t v):value(v){}
+ static OSNumber *withNumber(uint64_t v,unsigned){return object<OSNumber>(v);}
  uint64_t unsigned64BitValue(){return value;}
  uint32_t unsigned32BitValue(){return (uint32_t)value;}
 };
 struct OSDictionary : OSObject {
  std::map<std::string,OSObject *> entries;
+ static OSDictionary *withCapacity(unsigned){return object<OSDictionary>();}
+ bool setObject(const char *key,OSObject *value){entries[key]=value;return true;}
  unsigned getCount(){return entries.size();}
  OSObject *getObject(const char *key){auto i=entries.find(key);return i==entries.end()?nullptr:i->second;}
+};
+struct OSData : OSObject {
+ std::vector<uint8_t> bytes;
+ static bool fail;
+ OSData(const void *data,unsigned size) : bytes((const uint8_t *)data,(const uint8_t *)data+size){}
+ static OSData *withBytes(const void *data,unsigned size){return fail?nullptr:object<OSData>(data,size);}
+};
+bool OSData::fail=false;
+struct IOService : OSDictionary {
+ bool setProperty(const char *key,OSObject *value){return setObject(key,value);}
 };
 #define OSDynamicCast(type,object) dynamic_cast<type *>(object)
 namespace HoujiBacklightTrace {
@@ -34,8 +60,22 @@ static unsigned data[Count];static void set(Field field,unsigned value){data[fie
 '''
 unit += '#include ' + json.dumps(str(root / 'kernel/overlay/iokit/Kernel/arm/HoujiBacklightProtocol.h')) + '\n'
 unit += 'struct Parser {\n' + methods + '};\n'
+unit += publisher
 unit += r'''
 int main() {
+ IOService service;
+ assert(houji_backlight_publish_ios26(&service));
+ auto *calibration=dynamic_cast<OSDictionary *>(service.getObject("backlight-calibration-parameters"));
+ auto *table=dynamic_cast<OSData *>(service.getObject("backlight-marketing-table"));
+ const uint32_t curve[]={5u*65536,140u*65536,400u*65536};
+ assert(table && table->bytes.size()==sizeof(curve) && memcmp(table->bytes.data(),curve,sizeof(curve))==0);
+ assert(calibration && calibration->getCount()==9);
+ assert(dynamic_cast<OSNumber *>(calibration->getObject("lMinProduct"))->value==curve[0]);
+ assert(dynamic_cast<OSNumber *>(calibration->getObject("lMaxPanel"))->value==curve[2]);
+ IOService incomplete;
+ OSData::fail=true;
+ assert(!houji_backlight_publish_ios26(&incomplete) && incomplete.getCount()==0);
+ puts("PASS: iOS26 brightness profile uses fixed-point calibration and a nonempty table");
  unsigned level=77;uint64_t duration=88;
  OSNumber half(32768),fade(16384),metadata(123),maximum(65536),tooHigh(65537);
  OSDictionary d;d.entries={{"brightness",&half},{"FadePeriod",&fade}};

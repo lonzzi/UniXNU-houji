@@ -1365,3 +1365,11 @@ v24 在同一个根卷和启动配置下重复了 4 次 backboardd 提交与 0 �
 首次异常退出记录为 `status=b namespace=2 subcode=b`，即 signal 11
 （SIGSEGV），没有退出描述。OrangeFox 在 291 秒重新连接，启动记录通过
 CRC 校验。下一步使用同一个有限回读保存首次用户访问异常的地址和寄存器。
+
+v25 的首次访问异常和首次退出来自同一个 backboardd。访问地址为 0，ESR 为
+`0x92000006`。用供体 23G90 的 slide 还原 PC 后，故障指令在
+`_DisplaySliderToLogicalBrightnessInternal + 276`。调用者
+`DisplayCreateWithCapabilitiesAndID` 在读取背光校准字典失败后，先运行亮度
+滑块转换，再装入营销亮度表。旧 houji 服务只发布 `IODisplayParameters`，缺少
+iOS26 读取的 `backlight-calibration-parameters` 和 `backlight-marketing-table`。
+本轮再次完成 4 次 backboardd 提交，交换次数为 0，296 秒回到 OrangeFox。
