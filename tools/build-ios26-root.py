@@ -143,11 +143,14 @@ def main():
         header[1128:1136] != bytes.fromhex('1e38300864ba2b7b')):
         p.error('Unqualified HFSX geometry or volume identity')
     for source in [a.system_root, a.cryptex_os, a.cryptex_app, a.exclave]:
-        mounted_image(source, False)
+        if mounted_image(source, False).get('GlobalPermissionsEnabled') is not True:
+            p.error('Enable numeric ownership on the read-only donor mount: ' + str(source))
     version = plistlib.loads((a.system_root / 'System/Library/CoreServices/SystemVersion.plist').read_bytes())
     if (version['ProductVersion'], version['ProductBuildVersion']) != ('26.6.2', '23G90'):
         p.error('Unexpected donor system')
     userland = build_files(a.userland_build)
+    if userland.get('data_numeric_owners_verified') is not True:
+        p.error('Rebuild the Data template from the donor with numeric ownership enabled')
     metal, apps, compat = [build_files(d) for d in [a.metal_build, a.apps_build, a.compat_build]]
     if (metal.get('runtime_logging') is not False or
         metal.get('deployment_target') != '26.0' or apps.get('profile') != 'ios26' or

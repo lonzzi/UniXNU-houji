@@ -30,6 +30,11 @@ def main():
     version = plistlib.loads((system / 'System/Library/CoreServices/SystemVersion.plist').read_bytes())
     if (version['ProductVersion'], version['ProductBuildVersion']) != ('26.6.2', '23G90'):
         p.error('Expected the pinned iOS26 donor')
+    data_root = system / 'private/var'
+    for relative, owner in [('.', (0, 0)), ('db', (0, 0)), ('root', (0, 0)), ('mobile', (501, 501))]:
+        info = (data_root / relative).lstat()
+        if not stat.S_ISDIR(info.st_mode) or (info.st_uid, info.st_gid) != owner:
+            p.error('Expected original iOS numeric owners under private/var. Mount the donor with owners enabled.')
     if out.exists():
         p.error('Output exists')
     source = out / 'source'
@@ -102,7 +107,9 @@ def main():
     # A fresh donor template. Files are copied as ordinary bytes (HFS compression
     # is disabled in the kernel); owners and modes are applied by init to ramfs.
     entries = {}
-    data_root = system / 'private/var'
+    def template_walk_error(error):
+        raise ValueError('Cannot enumerate the donor Data template: ' + str(error)) from error
+
     def template_directory(path):
         info = path.lstat()
         relative = path.relative_to(data_root)
@@ -120,7 +127,7 @@ def main():
         else:
             raise ValueError('Unsupported template entry: ' + str(relative))
     template_directory(data_root)
-    for parent, directories, files in os.walk(data_root, followlinks=False):
+    for parent, directories, files in os.walk(data_root, followlinks=False, onerror=template_walk_error):
         if Path(parent) == data_root:
             directories[:] = [d for d in directories if d != 'staged_system_apps']
         for name in sorted(directories + files):
@@ -167,6 +174,7 @@ def main():
     report = {'architecture': 'arm64e', 'deployment_target': '26.0', 'reference_revision': pin['revision'],
               'donor_build': '23G90', 'stage0': 'direct HFS helper; no donor storage or md1 mount',
               'data_mode': 'fresh ramfs template; persistence not yet qualified',
+              'data_numeric_owners_verified': True,
               'runtime_collectors': False, 'files': files, 'source_inputs': inputs,
               'device_accessed': False, 'installed': False, 'hardware_verified': False}
     (out / 'commands.json').write_text(json.dumps(commands, indent=2) + '\n')
