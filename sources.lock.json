@@ -530,7 +530,7 @@
       "reserved_PID1_exit_checkpoint": true
     },
     "not_yet_qualified": [
-      "stock iOS26 system services and desktop runtime",
+      "stock iOS26 service functionality and visible desktop runtime",
       "Metal shaders/presentation and refresh on houji",
       "multicore scheduler",
       "brightness/touch/battery and app runtime on iOS26"
@@ -544,7 +544,7 @@
     },
     "testing_paused_by_user": false,
     "latest_device_result": {
-      "profile": "full-system-v16-HFS-stock-launchd-main",
+      "profile": "full-system-v17-stock-services-snapshot",
       "kernel_entry_verified": true,
       "native_UFS_initialized": true,
       "native_HFSX_identity_verified": true,
@@ -554,7 +554,7 @@
       "user_entry_verified": true,
       "GPU_verified": false,
       "GUI_verified": false,
-      "result": "The v5 HFSX root exposes the unchanged Cryptex cache through the default system directory. The current-trial startup identity and CRCs confirm the HFS mount, all three successful exec returns, and stock-launchd-main at kernel time 86.819698 seconds with initproc_spawned accepted. The prior missing-libSystem exit no longer occurred. This snapshot ends at that milestone; system services, desktop and Metal shaders still need device evidence.",
+      "result": "The current-trial CRC verifies stock launchd main and its Early boot complete event. A single snapshot confirms five live service names, including backboardd and SpringBoard, but observes zero backboardd submits and zero framebuffer swaps or copies at that time. The completed GPU fence remains at the startup qualification value 98. Visible desktop and Metal shaders still need device evidence.",
       "native_HFSX_mounted": true,
       "init_exec_attempted": true,
       "GPU_2D_startup_self_test": {
@@ -591,7 +591,7 @@
         "critical_exit_recorded": false,
         "detailed_vnode_MachO_records_enabled": false,
         "initproc_spawned_accepted": true,
-        "stock_launchd_main_kernel_seconds": 86.819698
+        "stock_launchd_main_kernel_seconds": 85.688072
       },
       "recovery_seen_within_seconds": 348,
       "coherence_probe": {
@@ -615,7 +615,24 @@
         "battery_UI_verified": false
       },
       "stock_launchd_dyld_reached": true,
-      "stock_launchd_main_verified": true
+      "stock_launchd_main_verified": true,
+      "service_snapshot": {
+        "kernel_seconds": 115.71966,
+        "launchd_early_boot_complete_kernel_seconds": 90.186076,
+        "processes_present": [
+          "notifyd",
+          "backboardd",
+          "runningboardd",
+          "lsd",
+          "SpringBoard"
+        ],
+        "gpu_query_status": 0,
+        "backboardd_submits": 0,
+        "completed_fence": 98,
+        "framebuffer_swaps": 0,
+        "framebuffer_CPU_copies": 0,
+        "visible_desktop_verified": false
+      }
     },
     "rust": {
       "channel": "nightly-2026-11-03",
@@ -775,7 +792,7 @@
       "ADSP_carveout_writes": "iOS26 only: bounded volatile aligned 32-bit stores, partial-word neighbor preservation, overflow checks; avoid bulk memcpy/bzero/DC ZVA on Device-typed reserved firmware RAM. Existing image placement/PAS/range rules and GPU NC whitelist unchanged. DTB metadata begin/accepted startup checkpoints distinguish PAS from segment writes; hardware qualification pending.",
       "filesystem_selection": "houji_native_root=1 accepts only the registered hfs filesystem and refuses an alternate mountroot callback. No fallback to always-successful mockfs. RAM-only native_root=0 preserves prior filesystem selection. Mount callback type/result are printed at startup; actual HFS mount verified in full-system v14 through v16.",
       "cryptex_layout": "Canonical OS/App contents in private/preboot/Cryptexes with stock System/Cryptexes symlinks. The default system shared-cache directory links to the unchanged Cryptex cache. v16 verified stock launchd main with this root layout.",
-      "pid1_services_snapshot": "Optional houji_pid1_services=1 with the same startup, native-root and Recovery gates. The existing main worker saves one additional record after 30 seconds. It checks five live process names and calls the existing GPU submission counter query once. A successful query gives counters at the snapshot time. The first terminal result keeps its own slot."
+      "pid1_services_snapshot": "Optional houji_pid1_services=1 with the same startup, native-root and Recovery gates. The existing main worker saves one additional record after 30 seconds. It checks five live process names and calls the existing GPU submission counter query once. A successful query gives counters at the snapshot time. The first terminal result keeps its own slot. A mode 3 worker also saves one exit-code and counter record from normal context before provider teardown. A successful bounded run with a stopped provider returns through the time-limit screen."
     },
     "minimum_device_result": {
       "kernel_entry_verified": true,
@@ -784,6 +801,6 @@
       "GUI_verified": false,
       "result": "2026-11-06 owner screen photo shows Darwin 25.6.0, initialized GIC/VM/IOKit/HFS and HOUJI IOS26 ARM64E PID1 REACHED. RAM-only one-CPU trial; no physical root install or runtime collectors."
     },
-    "hardware_boot_scope": "Native arm64e RAM PID1 and stock iOS26 launchd main verified on Xiaomi 14. The single-CPU / 8 GiB full-system trial mounted HFS and passed dedicated GPU 2D startup self-tests. System services, desktop, Metal shaders and multicore need further device evidence."
+    "hardware_boot_scope": "Native arm64e RAM PID1 and stock iOS26 launchd main verified on Xiaomi 14. The single-CPU / 8 GiB full-system trial mounted HFS, passed GPU 2D startup self-tests and recorded five live iOS service names. Visible desktop, Metal shaders and multicore need further device evidence."
   }
 }

@@ -252,6 +252,8 @@ stock launchd 的 main 通知在独立的一次性线程保存，避免在 sysct
 另设 `houji_pid1_services=1` 后，该线程在 main 检查点之后等待约 30 秒，再多保存一条
 服务状态。记录包含五个指定进程在该时刻的存在情况和一次 GPU 提交计数查询结果。
 查询返回 0 时，提交数和完成 fence 有效。首条终止原因仍有独立额度，测试没有周期采集。
+启用该选项的 mode 3 测试还在退出循环后保存一次 `gpu-runtime-end`。它记录退出码和
+退出前的 GPU 计数，供下一次 Recovery 自动回读。成功停止 provider 后显示正常回收。
 首次完整系统使用的 Data 仍是 ramfs，持久化、旧数据迁移和所有既有功能的 iOS26
 运行期验收尚未完成。
 
@@ -323,4 +325,5 @@ canonical preboot 视图。镜像作者现在检查这两个视图和 arm64e cac
 
 v16 使用新增默认缓存入口的 v5 根卷。自动回读通过本轮标识及 CRC 校验，内核时间
 约 86.8 秒记录 `stock-launchd-main`，`initproc_spawned` 已由内核接受。此轮越过了
-之前的缺库退出。启动文件保存至该里程碑，系统服务和桌面进度需要后续证据。
+之前的缺库退出。v17 的单次回读确认五个系统进程存在，包括 backboardd 和 SpringBoard。
+当时 GPU fence 为启动自检的 98，尚无 backboardd 提交或 framebuffer 交换。

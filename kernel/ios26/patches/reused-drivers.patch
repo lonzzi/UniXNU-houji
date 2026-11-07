@@ -176,3 +176,44 @@ diff --git a/iokit/Kernel/houji-ufs-root/battery/HoujiAdspTransport.cpp b/iokit/
      }
      __asm__ volatile("dsb sy" ::: "memory");
      if (bounce) IOFree(bounce, kChunk);
+diff --git a/iokit/Kernel/houji-ufs-root/HoujiGpuNativeLive.inc b/iokit/Kernel/houji-ufs-root/HoujiGpuNativeLive.inc
+--- a/iokit/Kernel/houji-ufs-root/HoujiGpuNativeLive.inc
++++ b/iokit/Kernel/houji-ufs-root/HoujiGpuNativeLive.inc
+@@ -6,6 +6,8 @@
+ #define HOUJI_GPU_NATIVE_LIVE_INC
+ extern "C" void houji_touch_driver_report(void);
+ extern "C" void houji_managed_physical_map_debug_report(void);
++extern "C" void houji26_boot_gpu_end(unsigned, uint64_t);
++extern "C" void houji26_finish_trial(unsigned) __attribute__((noreturn));
+ static struct {
+  unsigned mode,requested,retained,ufs_proven,fs_trial,coexist,deny,phase,code,draws,pending_read,pending_write,worker;
+  uint64_t dma_pa,dma_owned;uint32_t before_fence,after_fence,crc;
+@@ -155,6 +157,7 @@
+   }else if(checks>=100)break;
+  }
+  if(gHoujiLiveDiagnostics){houjiProviderPerfReport();native_adreno_provider_snapshot();IOLog("HOUJI LIVE LIFETIME: worker=%u mode=%u checks=%u elapsed-us=%llu probe-state=%u code=%u fence=%u/%u; original roots and all active BO retained\n",l.worker,l.mode,checks,houjiSubmitNow(nullptr)-started,probe_state,l.code,gHoujiSubmit.seq,gHoujiSubmit.observed);}
++ if(l.mode==3 && houjiNativeGpuFsAllowed())houji26_boot_gpu_end(l.code,houjiSubmitNow(nullptr)-started);
+  gHoujiApi.in_op=1;
+  if(native_adreno_provider_stop(houjiProviderReset,nullptr)){__atomic_store_n(&l.deny,1u,__ATOMIC_RELEASE);panic("HOUJI LIVE: stop/isolation uncertain; no FS, every BO retained");}
+  gHoujiApi.status.noteSuspend();gHoujiCp.active=0;gHoujiFull.active=0;gHoujiSubmit.active=0;gHoujiApi.in_op=gHoujiApi.active=0;
+@@ -162,6 +165,8 @@
+  if(gHoujiLiveDiagnostics){houjiFullReport();houjiCpSaveFinal();}
+  if(l.mode==2 && gHoujiLiveDiagnostics){houjiProbeLogDump();houjiCpSaveFinal();}
+  if(l.mode==3 && gHoujiLiveDiagnostics){houjiWallpaperLogDump();houjiCpSaveFinal();houjiKeyboardLogDump();houjiCpSaveFinal();}
++ // A successful bounded mode 3 run has finished and its provider stopped.
++ if(l.mode==3 && !l.code && gReturnRecovery)houji26_finish_trial(1);
+  panic("HOUJI LIVE: runtime ended mode=%u code=%u; retained PSCI recovery",l.mode,l.code);
+ }
+ static bool houjiLiveStart(void){
+diff --git a/iokit/Kernel/houji-ufs-root/Adreno740/NativeAdrenoPublish.cpp b/iokit/Kernel/houji-ufs-root/Adreno740/NativeAdrenoPublish.cpp
+--- a/iokit/Kernel/houji-ufs-root/Adreno740/NativeAdrenoPublish.cpp
++++ b/iokit/Kernel/houji-ufs-root/Adreno740/NativeAdrenoPublish.cpp
+@@ -1134,6 +1134,8 @@
+ extern "C" void native_adreno_provider_snapshot(void){
+  const auto&d=native_adreno_metal_diag;
+  IOLog("HOUJI USERLAND PROGRESS: calls=%u selector=%u status=%x inflight=%u ext=%u/%x marker=%x result=%u opens=%u closes=%u; RAM observation, no GPU access or gate\n",d.calls,d.last_selector,d.last_status,d.inflight,d.ext_selector,d.ext_status,d.marks_total?d.marks[(d.marks_total-1)&15]:0,native_adreno_provider_probe_result(),d.opens,d.closes);
++ IOLog("HOUJI26 METAL DISCOVERY: name-reads=%u last-reader=%.16s opens=%u busy=%u bad=%u foreign=%u plugin-markers=%u\n",
++  d.name_reads,d.name_reader,d.opens,d.busy,d.bad,d.foreign_opens,d.marks_total);
+ }
+ 
+ extern "C" unsigned native_adreno_provider_probe_started(void){return __atomic_load_n(&gHoujiProbeStarted,__ATOMIC_ACQUIRE);}

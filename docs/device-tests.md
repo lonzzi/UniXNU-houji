@@ -1310,3 +1310,15 @@ CRC 校验，三个 exec 返回 0，内核时间 86.8 秒出现 `stock-launchd-m
 `initproc_spawned accepted`。此轮跨过了 `libSystem.B.dylib` 缺库退出，主机在临时启动后
 348 秒观测到 OrangeFox 重连。最后一条启动里程碑是原版 launchd 主程序，服务、桌面和
 Metal shader 仍需各自的实机证据。
+
+完整系统 v17 复用 v5 根卷，回读记录在内核时间 85.7 秒确认原版 launchd 主程序，
+90.2 秒记录 launchd 的 `Early boot complete`。约 30 秒后的单次服务记录确认
+notifyd、backboardd、runningboardd、lsd 和 SpringBoard 五个进程都存在。GPU 查询返回
+0，backboardd 提交数为 0，完成 fence 为启动自检的 98，framebuffer 交换和 CPU 复制
+均为 0。主机在临时启动后 348 秒观察到 OrangeFox 重连。这里的进程记录只覆盖该时刻，
+画面与后续 GPU 提交需要实机证据。
+
+用户提供的终止照片显示 `HOUJI LIVE: runtime ended mode=3`，数值被前摄遮挡。
+旧的 mode 3 正常到时与故障退出共用 panic 文本。后续测试从正常工作线程另外保存
+一次退出状态、Metal 属性读取、连接和提交计数。mode 3 成功结束并完成 provider
+停止后使用正常计时回收画面，错误仍走终止路径。

@@ -32,6 +32,7 @@ extern uint32_t processor_avail_count;
 extern "C" void houji_ufs_checkpoint(const char *, unsigned);
 extern "C" uint32_t houji26_process_presence(const char *const *, unsigned);
 extern "C" IOReturn native_adreno_provider_desktop_stats(uint64_t[7]);
+extern "C" void native_adreno_provider_snapshot(void);
 static uint32_t bootResults, bootMainSeen, bootTerminalResult;
 static bool bootResultsEnabled(void) {
     int enabled = 0, native = 0, recovery = 0;
@@ -44,6 +45,11 @@ static bool bootDetailsEnabled(void) {
     int detail = 0;
     PE_parse_boot_argn("houji_pid1_detail", &detail, sizeof(detail));
     return detail == 1;
+}
+static bool bootServicesEnabled(void) {
+    int enabled = 0;
+    PE_parse_boot_argn("houji_pid1_services", &enabled, sizeof(enabled));
+    return enabled == 1 && bootResultsEnabled();
 }
 static void saveBootResult(const char *kind, const char *object, int result, const char *detail) {
     char stage[768];
@@ -82,9 +88,7 @@ extern "C" void houji26_boot_header(const char *path, const void *data, unsigned
 }
 static void bootMainWorker(void *, wait_result_t) {
     bootResult("stock-launchd-main", "/sbin/launchd.ios", 0, "kernel initproc_spawned accepted");
-    int observeServices = 0;
-    PE_parse_boot_argn("houji_pid1_services", &observeServices, sizeof(observeServices));
-    if (observeServices != 1 || !bootResultsEnabled()) return;
+    if (!bootServicesEnabled()) return;
     // This worker is queued once by the main milestone. Use a separate
     // result so the first critical exit can still be saved independently.
     IOSleep(30000);
@@ -98,7 +102,23 @@ static void bootMainWorker(void *, wait_result_t) {
         "notifyd=%u backboardd=%u runningboardd=%u lsd=%u SpringBoard=%u gpu-query=%x backboard-submits=%llu submit-errors=%llu completed-fence=%llu",
         present & 1U, (present >> 1) & 1U, (present >> 2) & 1U, (present >> 3) & 1U, (present >> 4) & 1U,
         static_cast<unsigned>(gpu), stats[0], stats[2], stats[4]);
-    if (bootResultsEnabled()) saveBootResult("stock-launchd-services", "/sbin/launchd.ios", 0, detail);
+    if (bootResultsEnabled()) {
+        native_adreno_provider_snapshot();
+        saveBootResult("stock-launchd-services", "/sbin/launchd.ios", 0, detail);
+    }
+}
+extern "C" void houji26_boot_gpu_end(unsigned code, uint64_t elapsed_us) {
+    if (!bootServicesEnabled()) return;
+    uint64_t stats[7] = {};
+    IOReturn gpu = native_adreno_provider_desktop_stats(stats);
+    char detail[256];
+    snprintf(detail, sizeof(detail),
+        "elapsed-us=%llu gpu-query=%x backboard-submits=%llu submit-errors=%llu completed-fence=%llu",
+        elapsed_us, static_cast<unsigned>(gpu), stats[0], stats[2], stats[4]);
+    if (bootResultsEnabled()) {
+        native_adreno_provider_snapshot();
+        saveBootResult("gpu-runtime-end", "mode=3", static_cast<int>(code), detail);
+    }
 }
 extern "C" void houji26_boot_main(void) {
     if (__atomic_exchange_n(&bootMainSeen, 1U, __ATOMIC_ACQ_REL)) return;

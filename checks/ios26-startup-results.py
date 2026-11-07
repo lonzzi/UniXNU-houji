@@ -23,7 +23,7 @@ constexpr int KERN_SUCCESS = 0;
 using entry_t = void (*)(void *, wait_result_t);
 static int enabled, native_root, recovery, detail, services, panic_state, thread_error;
 static bool interruptible = true;
-static unsigned thread_calls, log_calls, sleeps, service_reads;
+static unsigned thread_calls, log_calls, sleeps, service_reads, gpu_snapshots;
 static entry_t queued;
 static std::vector<std::string> writes;
 static bool PE_parse_boot_argn(const char *name, void *value, int size) {
@@ -56,12 +56,13 @@ extern "C" IOReturn native_adreno_provider_desktop_stats(uint64_t stats[7]) {
     stats[0] = 12; stats[4] = 110;
     return 0;
 }
+extern "C" void native_adreno_provider_snapshot(void) { ++gpu_snapshots; }
 '''
 unit += source[start:end]
 unit += r'''
 static void reset() {
     enabled = native_root = recovery = detail = 1; panic_state = thread_error = 0;
-    services = 0; sleeps = service_reads = 0;
+    services = 0; sleeps = service_reads = gpu_snapshots = 0;
     interruptible = true; thread_calls = log_calls = bootResults = bootMainSeen = bootTerminalResult = 0;
     queued = nullptr; writes.clear();
 }
@@ -136,17 +137,23 @@ int main() {
     }
     houji26_boot_main();queued(nullptr,0);assert(writes.size()==7);
     houji26_boot_exit(6,1,6,"Library not loaded",18);assert(writes.size()==8);
-    assert(!sleeps && !service_reads);
+    houji26_boot_gpu_end(0,180000000);
+    assert(writes.size()==8 && !sleeps && !service_reads && !gpu_snapshots);
     reset();services=1;
     for (const char *path : {"/sbin/launchd", "/redwood/sbin/init", "/sbin/launchd.ios"}) {
         houji26_boot_exec(path,0,1);houji26_boot_exec(path,0,0);
     }
     houji26_boot_main();queued(nullptr,0);
-    assert(writes.size()==8 && sleeps==1 && service_reads==1);
+    assert(writes.size()==8 && sleeps==1 && service_reads==1 && gpu_snapshots==1);
     assert(writes.back().find("notifyd=0 backboardd=1 runningboardd=1 lsd=0 SpringBoard=1")!=std::string::npos);
     assert(writes.back().find("gpu-query=0 backboard-submits=12 submit-errors=0 completed-fence=110")!=std::string::npos);
     houji26_boot_exit(6,1,6,"later exit",10);
     assert(writes.size()==9 && writes.back().find("pid1-critical-exit")!=std::string::npos);
+    houji26_boot_gpu_end(15,180000000);
+    assert(writes.size()==10 && gpu_snapshots==2);
+    assert(writes.back().find("gpu-runtime-end object=mode=3 result=15 main=1 elapsed-us=180000000")!=std::string::npos);
+    panic_state=1;houji26_boot_gpu_end(0,180000000);
+    assert(writes.size()==10 && gpu_snapshots==2);
 }
 '''
 with tempfile.TemporaryDirectory(prefix='houji26-startup-results-') as name:
@@ -157,4 +164,4 @@ with tempfile.TemporaryDirectory(prefix='houji26-startup-results-') as name:
                     '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                     str(cpp), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-print('PASS: actual startup writer keeps the default eight records, allows one opt-in service snapshot, retains the first terminal reason and defers main notification; host peers, no device or GPU')
+print('PASS: actual startup writer keeps the default eight records, allows opt-in service and GPU exit records, and retains the first terminal reason; host peers, no device or GPU')
