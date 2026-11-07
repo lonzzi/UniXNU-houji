@@ -544,7 +544,7 @@
     },
     "testing_paused_by_user": false,
     "latest_device_result": {
-      "profile": "full-system-v25-first-compositor-fault",
+      "profile": "full-system-v26-first-visible-system",
       "kernel_entry_verified": true,
       "native_UFS_initialized": true,
       "native_HFSX_identity_verified": true,
@@ -552,9 +552,9 @@
       "CPU0_timer_verified": true,
       "startup_checkpoint_CRC_verified": true,
       "user_entry_verified": true,
-      "GPU_verified": false,
-      "GUI_verified": false,
-      "result": "The persona bootstrap and readable cache alias permit backboardd to reach framebuffer and Metal setup. Four backboardd submits complete with zero submission errors, fence 102, and no framebuffer swaps or copies. The first compositor SIGSEGV is a null load in CoreBrightness slider conversion, reached when the backlight service lacks the iOS26 calibration properties.",
+      "GPU_verified": true,
+      "GUI_verified": true,
+      "result": "User observed a lock screen or home screen. Backboardd completed 87 native GPU submissions with zero submit errors and 86 framebuffer swaps and CPU copies. The user reported touch unresponsive. Physical touch activity and the backboardd read loop are observable; touch delivery, panel brightness control, shader coverage and refresh remain separate checks.",
       "native_HFSX_mounted": true,
       "init_exec_attempted": true,
       "GPU_2D_startup_self_test": {
@@ -581,62 +581,61 @@
         "retained_early_exec_records": false,
         "evidence": "gpu-runtime-end main=1"
       },
-      "recovery_seen_within_seconds": 296,
+      "recovery_seen_within_seconds": 256,
       "coherence_probe": {
         "runtime_mode": 3,
         "cached_WC_coherent": 2,
-        "source": "v23 startup readback, same root and mode as v24"
+        "source": "v23 startup readback; retained mode 3 in v26"
       },
       "stock_launchd_dyld_reached": true,
       "stock_launchd_main_verified": true,
       "GPU_worker_exit_snapshot": {
-        "kernel_seconds": 261.053386,
+        "kernel_seconds": 221.539102,
         "mode": 3,
         "result": 0,
-        "elapsed_us": 180381995,
+        "elapsed_us": 141005587,
         "gpu_query_status": 0,
-        "backboardd_submits": 4,
+        "backboardd_submits": 87,
         "submit_errors": 0,
-        "completed_fence": 102,
-        "Metal_name_reads": 13,
-        "plugin_markers": 60,
-        "provider_opens": 10,
-        "provider_closes": 10,
+        "completed_fence": 185,
+        "Metal_name_reads": 2,
+        "plugin_markers": 6,
+        "provider_opens": 4,
+        "provider_closes": 3,
         "client_window_names": [
           "backboardd"
         ],
-        "framebuffer_swaps": 0,
-        "framebuffer_CPU_copies": 0
+        "framebuffer_swaps": 86,
+        "framebuffer_CPU_copies": 86
       },
       "display_initialization": {
         "registered": true,
         "node": "reused",
         "logical_width": 1206,
         "logical_height": 2622,
-        "client_init_attempts": 14,
-        "clients_started": 14,
+        "client_init_attempts": 4,
+        "clients_started": 4,
         "selector_bitmap": [
-          144115197475586304,
-          16778240
+          181269894569300344,
+          17859600
         ]
       },
       "userspace_wait": {
-        "single_sample_kernel_seconds": 212.756881,
-        "process": "backboardd",
-        "symbol_donor": "23G90 / iPhone18,1",
-        "main": "BrightnessSystemInternal initBLControl: -> BLControl waitForALSArrival",
-        "bounded_ALS_wait_seconds": 5,
-        "first_exit_reason_verified": true,
-        "first_exit_signal": 11,
-        "first_exit_namespace": 2,
-        "first_exit_description_present": false,
-        "first_fault": {
-          "same_process_as_first_exit": true,
-          "address": 0,
-          "esr": "0x92000006",
-          "donor_instruction": "_DisplaySliderToLogicalBrightnessInternal + 276",
-          "caller": "DisplayCreateWithCapabilitiesAndID + 1660"
-        }
+        "single_sample_kernel_seconds": 212.596141,
+        "backboardd_exit_retained": false,
+        "backboardd_fault_retained": false,
+        "input_thread": "read loop on /dev/redwood-touch",
+        "physical_touch_activity_bursts": 5
+      },
+      "user_observation": {
+        "visible_lock_or_home_screen": true,
+        "touch_responds": false
+      },
+      "backlight_snapshot": {
+        "registered": true,
+        "requests": 86,
+        "rejected": 86,
+        "last_panel_level": 307
       }
     },
     "rust": {
@@ -813,6 +812,6 @@
       "GUI_verified": false,
       "result": "2026-11-06 owner screen photo shows Darwin 25.6.0, initialized GIC/VM/IOKit/HFS and HOUJI IOS26 ARM64E PID1 REACHED. RAM-only one-CPU trial; no physical root install or runtime collectors."
     },
-    "hardware_boot_scope": "Native arm64e RAM PID1 and stock iOS26 launchd main verified on Xiaomi 14. The single-CPU / 8 GiB full-system trial mounted HFS, passed GPU 2D startup self-tests and recorded five live iOS service names. Visible desktop, Metal shaders and multicore need further device evidence."
+    "hardware_boot_scope": "Xiaomi 14 verified native arm64e PID1, stock iOS26 launchd, visible system UI and completed backboardd GPU submissions and framebuffer swaps. Touch delivery, brightness control, Metal shader coverage, refresh and multicore need device verification."
   }
 }

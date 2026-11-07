@@ -1,0 +1,83 @@
+diff --git a/src/inject26.c b/src/inject26.c
+--- a/src/inject26.c
++++ b/src/inject26.c
+@@ -118,8 +118,10 @@
+ #define DIGITIZER_RANGE                 0x1     /* event mask: what has changed */
+ #define DIGITIZER_TOUCH                 0x2
+ #define DIGITIZER_POSITION              0x4
++#define DIGITIZER_IDENTITY              0x20
+ #define DIGITIZER_FROM_EDGE_TIP         0x800   /* not a change: this finger came in over an edge of the screen */
+ #define FIELD_IS_BUILT_IN               0x4
++#define FIELD_DIGITIZER_COLLECTION      0xb0016
+ #define FIELD_DIGITIZER_DISPLAY_INTEGRATED 0xb0019
+ 
+ #define MAX_FINGERS     10
+@@ -272,7 +274,15 @@
+ 	CFDictionarySetValue(properties, CFSTR("VendorID"), zero);
+ 	CFDictionarySetValue(properties, CFSTR("ProductID"), zero);
+ 	if (display) {
++		/* Match the physical digitizer dimensions used by the houji iOS16 service. */
++		CFNumberRef width = number(68 << 16), height = number(151 << 16);
+ 		CFDictionarySetValue(properties, CFSTR("DisplayIntegrated"), kCFBooleanTrue);
++		if (width && height) {
++			CFDictionarySetValue(properties, CFSTR("SurfaceWidth"), width);
++			CFDictionarySetValue(properties, CFSTR("SurfaceHeight"), height);
++		}
++		if (width) CFRelease(width);
++		if (height) CFRelease(height);
+ 	}
+ 	/* the dictionary stays: it is what service_copy_property() answers from */
+ 	made->properties = properties;
+@@ -314,6 +324,9 @@
+ send_touch_locked(IOHIDServiceClientRef screen, const struct redwood_touch *t)
+ {
+ 	uint32_t change = t->type == REDWOOD_TOUCH_MOVE ? DIGITIZER_POSITION : DIGITIZER_RANGE | DIGITIZER_TOUCH;
++	if (t->type == REDWOOD_TOUCH_DOWN) {
++		change |= DIGITIZER_IDENTITY | DIGITIZER_POSITION;
++	}
+ 	IOHIDEventRef hand, finger;
+ 	bool any = false;
+ 	unsigned f = t->finger;
+@@ -332,8 +345,13 @@
+ 		any |= fingers[i].touching;
+ 	}
+ 
+-	hand = IOHIDEventCreateDigitizerEvent(NULL, t->time, DIGITIZER_HAND, 0, 0, change & ~DIGITIZER_RANGE, 0, fingers[f].x,
++	uint32_t collection = change | (fingers[f].edge ? DIGITIZER_FROM_EDGE_TIP : 0);
++	hand = IOHIDEventCreateDigitizerEvent(NULL, t->time, DIGITIZER_HAND, 0, 0, collection, any ? 1 : 0, fingers[f].x,
+ 	    fingers[f].y, 0, 0, 0, 0, any, any, 0);
++	if (!hand) {
++		return;
++	}
++	IOHIDEventSetIntegerValue(hand, FIELD_DIGITIZER_COLLECTION, 1);
+ 	IOHIDEventSetIntegerValue(hand, FIELD_DIGITIZER_DISPLAY_INTEGRATED, 1);
+ 	IOHIDEventSetIntegerValue(hand, FIELD_IS_BUILT_IN, 1);
+ 	for (unsigned i = 0; i < MAX_FINGERS; i++) {
+@@ -343,6 +361,9 @@
+ 		finger = IOHIDEventCreateDigitizerFingerEvent(NULL, t->time, i + 1, i + 2,
+ 		    (i == f ? change : 0) | (fingers[i].edge ? DIGITIZER_FROM_EDGE_TIP : 0), fingers[i].x, fingers[i].y, 0,
+ 		    fingers[i].touching ? 1.0 : 0.0, 0, fingers[i].touching, fingers[i].touching, 0);
++		if (!finger) {
++			continue;
++		}
+ 		IOHIDEventSetIntegerValue(finger, FIELD_DIGITIZER_DISPLAY_INTEGRATED, 1);
+ 		IOHIDEventAppendEvent(hand, finger, 0);
+ 		CFRelease(finger);
+@@ -411,7 +432,7 @@
+ 	IOHIDEventSystemClientRef client = NULL;
+ 	IOHIDServiceClientRef screen = NULL, buttons = NULL;
+ 	struct redwood_touch t;
+-	unsigned count = 0, waking = 0;         /* waking: the fingers whose touch went into waking the display */
++	unsigned waking = 0;                    /* the fingers whose touch went into waking the display */
+ 	int device;
+ 
+ 	pthread_setname_np("redwood input");
+@@ -456,7 +477,7 @@
+ 	while (read(device, &t, sizeof(t)) == (ssize_t)sizeof(t)) {
+ 		uint64_t read_at = mach_absolute_time();
+ 
+-		if (t.type == REDWOOD_TOUCH_DOWN || t.type == REDWOOD_TOUCH_UP || count++ < 4) {
++		if (touch_latency) {
+ 			say("redwood: input: %s finger %u at %u %u (%.0f%% %.0f%%)\n",
+ 			    t.type == REDWOOD_TOUCH_DOWN ? "DOWN" : t.type == REDWOOD_TOUCH_UP ? "UP  " : "move",
+ 			    t.finger, t.x, t.y, t.x * 100.0 / 65535, t.y * 100.0 / 65535);

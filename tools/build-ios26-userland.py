@@ -72,6 +72,9 @@ def main():
     for name in headers:
         if name.endswith('.h'):
             extract(name, source / name.removeprefix(prefix))
+    touch_patch = ROOT / 'userland/ios26/inject-touch.patch'
+    subprocess.run(['patch', '-f', '-F', '0', '-p1', '-i', str(touch_patch)], cwd=source, check=True)
+    inputs['houji-inject-touch.patch'] = digest(touch_patch)
     # Keep initialization, template setup and exec injection; remove diagnostic
     # exercises and APFS/donor storage selection from the production PID1 path.
     init = source / 'src/init.c'

@@ -115,9 +115,9 @@ XNU 的配套 SDK 符号导出步骤仍报告参考工程缺少的 Apple 私有�
 | arm64e 内核、PAC、启动参数和 RAM root | 已实机运行至自编 arm64e PID1；屏幕证据确认 |
 | 单核/PSCI/GIC | 单核内核和调度器已运行，GIC 初始化可见；多核仍待验证 |
 | UFS/持久系统卷 | 原生 UFS 入口与 HFS715 已链接；完整 iOS26 root 已安装且 256 块读回一致，内核挂载与用户空间启动待验 |
-| A750/Metal/Turnip | arm64e Metal frontend、bridge/std 和 Turnip 已实际构建、链接、签名；设备 GPU 待验证 |
+| A750/Metal/Turnip | v26 已有 backboardd GPU 提交和 framebuffer 交换，用户确认出现锁屏或桌面；画面与帧率待验证 |
 | 多核、CPU/GPU DVFS、热控 | 策略保留，iOS26 启用与实机验证待完成 |
-| 触摸、亮度、电池和 USB 充电状态 | 硬件适配已编译，完整系统服务待验证 |
+| 触摸、亮度、电池和 USB 充电状态 | v26 收到面板触点，用户反馈触摸无响应。手动亮度、电量界面和 USB 状态待验证 |
 | 状态栏、系统应用、键盘及旧用户空间兼容 | 键盘/状态栏库与供体应用注册工具已构建 arm64e 并接入系统卷；运行期和服务迁移待验证 |
 | Wi-Fi、音频 | 未作为已实现功能；缺少 Wi-Fi 后端会明确返回不可用 |
 
@@ -281,6 +281,8 @@ stock launchd 的 main 通知在独立的一次性线程保存，避免在 sysct
   从启用所有者的只读供体读取原始 UID/GID。模板含部分受限的子目录，构建账号需能完整遍历。
   RAMFS 首次启动补齐供体 23G90 可读取的空 persona 清单，并保留已有清单。原版
   usermanagerd 负责建立本轮的实际用户状态。
+  `userland/ios26/inject-touch.patch` 把 iOS16 houji 触屏的物理尺寸、触点身份、
+  集合及按压标记接入 iOS26 的虚拟 HID 服务。逐触点输出只在显式启用诊断时运行。
 - `tools/build-ios26-root.py --plan`：核对稳定 Recovery 备份、只读供体挂载及已构建组件，输出本地组装方案。
   实际组装需要 macOS 管理员认证以保存 iOS 数字所有者；只操作新建的本地 HFS 镜像，不能安装手机分区。
 

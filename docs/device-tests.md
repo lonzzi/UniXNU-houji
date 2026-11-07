@@ -1373,3 +1373,13 @@ v25 的首次访问异常和首次退出来自同一个 backboardd。访问地�
 滑块转换，再装入营销亮度表。旧 houji 服务只发布 `IODisplayParameters`，缺少
 iOS26 读取的 `backlight-calibration-parameters` 和 `backlight-marketing-table`。
 本轮再次完成 4 次 backboardd 提交，交换次数为 0，296 秒回到 OrangeFox。
+
+v26 使用原来的根卷，在 iOS26 背光服务发布前加入校准字典和定点亮度表。
+用户确认出现锁屏或桌面，同时反馈触摸无响应。本轮通过启动记录 CRC 校验，
+确认 backboardd 87 次 GPU 提交、0 次提交错误、fence 185，framebuffer 交换及
+CPU 复制各 86 次。GPU 打开忙拒绝为 0，没有保留 backboardd 访问异常或退出。
+256 秒后 OrangeFox 重新连接。
+
+触控生产端记录了 5 个触摸活动段。一次线程采样确认 backboardd 的
+`redwood input` 已进入 `/dev/redwood-touch` 的读取循环。硬件触点到界面交互
+仍有待确认。背光服务已发布，86 次属性请求均被拒绝，实测面板亮度保持 307。
