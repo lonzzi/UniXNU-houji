@@ -1322,3 +1322,10 @@ notifyd、backboardd、runningboardd、lsd 和 SpringBoard 五个进程都存在
 旧的 mode 3 正常到时与故障退出共用 panic 文本。后续测试从正常工作线程另外保存
 一次退出状态、Metal 属性读取、连接和提交计数。mode 3 成功结束并完成 provider
 停止后使用正常计时回收画面，错误仍走终止路径。
+
+完整系统 v18 自动读回 `gpu-runtime-end`，CRC 和本轮标识均有效。退出码为 0，GPU
+工作线程运行 180.43 秒，主机在临时启动后 298 秒观察到 OrangeFox 重连。结束时的
+GPU 查询返回 0，backboardd 提交数和 framebuffer 交换、复制计数均为 0，完成 fence
+仍为 98。Metal 属性读取和插件启动标记都是 0，连接计数仍为两次打开和两次关闭，
+客户端记录仅有 kernel_task。单次服务记录仍确认五个进程存在。下一处验证边界是
+backboardd 到显示和 Metal 设备的接入。

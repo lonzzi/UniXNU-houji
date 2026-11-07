@@ -544,7 +544,7 @@
     },
     "testing_paused_by_user": false,
     "latest_device_result": {
-      "profile": "full-system-v17-stock-services-snapshot",
+      "profile": "full-system-v18-stock-services-and-GPU-exit",
       "kernel_entry_verified": true,
       "native_UFS_initialized": true,
       "native_HFSX_identity_verified": true,
@@ -554,7 +554,7 @@
       "user_entry_verified": true,
       "GPU_verified": false,
       "GUI_verified": false,
-      "result": "The current-trial CRC verifies stock launchd main and its Early boot complete event. A single snapshot confirms five live service names, including backboardd and SpringBoard, but observes zero backboardd submits and zero framebuffer swaps or copies at that time. The completed GPU fence remains at the startup qualification value 98. Visible desktop and Metal shaders still need device evidence.",
+      "result": "Current-trial CRC verifies stock launchd main, early boot completion, five present services, and mode 3 worker result 0 after 180.429749 seconds. The final snapshot observes zero backboardd submits, zero framebuffer swaps and copies, zero Metal plugin property reads and zero plugin initialization markers. The provider remains at the startup self-test fence 98 with two opens and two closes. OrangeFox returned within 298 seconds of host boot handoff.",
       "native_HFSX_mounted": true,
       "init_exec_attempted": true,
       "GPU_2D_startup_self_test": {
@@ -591,9 +591,9 @@
         "critical_exit_recorded": false,
         "detailed_vnode_MachO_records_enabled": false,
         "initproc_spawned_accepted": true,
-        "stock_launchd_main_kernel_seconds": 85.688072
+        "stock_launchd_main_kernel_seconds": 86.762258
       },
-      "recovery_seen_within_seconds": 348,
+      "recovery_seen_within_seconds": 298,
       "coherence_probe": {
         "status": 0,
         "phase": 6,
@@ -617,8 +617,8 @@
       "stock_launchd_dyld_reached": true,
       "stock_launchd_main_verified": true,
       "service_snapshot": {
-        "kernel_seconds": 115.71966,
-        "launchd_early_boot_complete_kernel_seconds": 90.186076,
+        "kernel_seconds": 116.796718,
+        "launchd_early_boot_complete_kernel_seconds": 93.503572,
         "processes_present": [
           "notifyd",
           "backboardd",
@@ -632,6 +632,25 @@
         "framebuffer_swaps": 0,
         "framebuffer_CPU_copies": 0,
         "visible_desktop_verified": false
+      },
+      "GPU_worker_exit_snapshot": {
+        "kernel_seconds": 261.939491,
+        "mode": 3,
+        "result": 0,
+        "elapsed_us": 180429749,
+        "gpu_query_status": 0,
+        "backboardd_submits": 0,
+        "submit_errors": 0,
+        "completed_fence": 98,
+        "Metal_name_reads": 0,
+        "plugin_markers": 0,
+        "provider_opens": 2,
+        "provider_closes": 2,
+        "client_window_names": [
+          "kernel_task"
+        ],
+        "framebuffer_swaps": 0,
+        "framebuffer_CPU_copies": 0
       }
     },
     "rust": {
