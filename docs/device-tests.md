@@ -1480,3 +1480,12 @@ v36 仍有两个视觉问题。用户观察到键盘弹出后设置搜索框变�
 poster 和 `PBFPosterExtensionDataStoreErrorDomain -2203`，扩展
 目录的错误内容超出当前摘录。iOS16 的键盘宽度和状态栏 hook 有版本
 门禁，iOS26 仍走 UIKit 原布局。
+
+v37 沿用同一份系统卷，仅临时扩大壁纸退出回读，243 秒后自动回到
+OrangeFox。记录通过本轮标识和 CRC 校验。八核、定时器和 IPI 通过，
+backboardd 成功提交 747 次，提交错误为 0，framebuffer 复制 738 次。
+
+PosterBoard 建成数据存储，报告时已知扩展为 0，锁屏集合仍返回 `-2203`。
+扩展目录的 `errno=-1` 调用栈经过 `pb_set_purgable`，这是参考注入已兼容的
+操作。已核对根卷带有 Mercury 和 Legacy 两个内建壁纸扩展。本轮证据定位到
+扩展发现和角色初始化，尚未确认 ExtensionKit 查询失败的位置。
