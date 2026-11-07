@@ -1552,3 +1552,23 @@ v42 用户点「添加新壁纸」后仍看到黑屏。248 秒后自动返回 Or
 包含壁纸扩展的框架。23G90 的内建壁纸扩展位于
 `System/Library/ExtensionKit/Extensions`，仍需确认开机重建后这些
 独立扩展是否进入 LaunchServices 数据库。
+
+v44 修正了 iOS26 系统应用登记清单的方向。生成器原先用 Bundle ID
+作键、安装路径作值，启动助手按目录名查找 Info.plist，因此在重建前拒绝。
+改用目录名映射到 Bundle ID 后，实机记录校验了 256 个路径，
+LaunchServices 重建返回 1。用户仍报告壁纸添加不可用，ExtensionKit
+仍匹配到 0 个提供者。登记助手在重建之后的扩展诊断阶段异常退出；
+本轮无法据此判断三个独立扩展各自的登记状态。启动约 247 秒后自动
+回到 OrangeFox，回读的本轮标识与 CRC 通过。
+
+v44 的 273 个同段触控写屏间隔合计约 9.612 秒，约 28.4 次/秒。
+backboardd 完成 3,532 次提交，提交错误为 0。3,523 次写屏中，
+GPU 等待平均 8.560 ms，CPU 写屏平均 0.887 ms。
+
+v45 用类型化的 Objective-C 初始化调用查询登记记录，并对照扩展点
+缓存的兼容开关。助手校验 256 个应用路径，重建返回 1，查到
+`com.apple.posterkit.provider` 扩展点。Mercury、Legacy、Collections
+三个内建扩展的 LaunchServices 记录均缺失，查询报
+`NSOSStatusErrorDomain/-10814`。PosterBoard 仍匹配到 0 个提供者，
+用户点添加仍看到黑屏或空白。242 秒后自动返回 OrangeFox，
+回读标识及 CRC 校验通过。

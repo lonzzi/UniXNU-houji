@@ -1706,7 +1706,7 @@ diff --git a/osfmk/arm64/gic_v3_irq.c b/osfmk/arm64/gic_v3_irq.c
 diff --git a/osfmk/arm64/loader_return.c b/osfmk/arm64/loader_return.c
 --- a/osfmk/arm64/loader_return.c
 +++ b/osfmk/arm64/loader_return.c
-@@ -249,6 +249,98 @@ loader_log_putc(char c)
+@@ -249,6 +249,102 @@ loader_log_putc(char c)
  	__builtin_arm_wsr64("DAIF", daif);
  }
  
@@ -1726,6 +1726,10 @@ diff --git a/osfmk/arm64/loader_return.c b/osfmk/arm64/loader_return.c
 +		"SpringBoard: the default wallpaper: asking",
 +		"SpringBoard: the default wallpaper asked for",
 +		"SpringBoard: no +[SBSUIWallpaperService",
++		"App registrar: start ",
++		"App registrar: validated ",
++		"App registrar: rebuild ",
++		"App registrar: poster ",
 +		"PosterBoard: no data store after 30 s",
 +		"PosterBoard: build data store",
 +		"PosterBoard: ExtensionKit matched ",

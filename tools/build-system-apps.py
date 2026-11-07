@@ -23,6 +23,7 @@ inputs = {str(p.relative_to(ROOT)): sha(p) for p in source.iterdir() if p.is_fil
 catalog = json.loads((source / 'system-apps.json').read_text())
 if args.profile == 'ios26':
     applications = {}
+    bundle_names = {}
     for relative in ('Applications', 'private/var/staged_system_apps'):
         directory = args.system_root.resolve() / relative
         if not directory.is_dir() or directory.is_symlink():
@@ -38,10 +39,12 @@ if args.profile == 'ios26':
                 continue
             if '/' in executable or executable in ('.', '..') or not (bundle / executable).is_file():
                 continue
-            target = '/Applications/' + bundle.name
-            if identifier in applications and applications[identifier] != target:
+            if identifier in bundle_names and bundle_names[identifier] != bundle.name:
                 raise ValueError('Ambiguous stock application identifier: ' + identifier)
-            applications[identifier] = target
+            if bundle.name in applications and applications[bundle.name] != identifier:
+                raise ValueError('Ambiguous stock application directory: ' + bundle.name)
+            bundle_names[identifier] = bundle.name
+            applications[bundle.name] = identifier
     if not applications:
         raise ValueError('No original iOS26 application bundles found')
     catalog = {'applications': applications}
@@ -57,6 +60,8 @@ command = ['xcrun','clang','-target',('arm64e-apple-ios26.0' if args.profile == 
            '-fstack-protector-strong','-fobjc-arc','-Wall','-Wextra','-Werror',
            '-Wno-deprecated-declarations','-I',str(out),str(source/'HoujiSystemApps.m'),
            '-framework','Foundation','-o',str(binary)]
+if args.profile == 'ios26':
+    command.insert(2, '-DHOUJI_SYSTEM_APPS_IOS26=1')
 (out/'compile-command.json').write_text(json.dumps(command,indent=2)+'\n')
 with (out/'compile.log').open('w') as log:
     subprocess.run(command,check=True,stdout=log,stderr=subprocess.STDOUT)
